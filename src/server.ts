@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import type { Queue } from 'bullmq';
 import {
   createQueue,
   createSyncCycleHandler,
@@ -14,7 +15,7 @@ import {
 } from '@smartcall/rpa-sdk';
 
 // キューを作成
-export const syncQueue = createQueue<RpaJobData>('sync');
+export const syncQueue = createQueue<RpaJobData>('sync') satisfies Queue;
 
 // Expressアプリを作成
 const app = express();
@@ -34,6 +35,15 @@ app.post(
     },
   })
 );
+
+// REMOVEME: 動作確認用にセルフエコー
+app.post(
+  '/callback',
+  (req, res) => {
+    console.log('[Callback] Received:', JSON.stringify(req.body, null, 2));
+    res.json({ success: true });
+  }
+)
 
 // サーバー起動
 const PORT = process.env.PORT || 3000;

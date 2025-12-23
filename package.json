@@ -1,16 +1,18 @@
 {
-  "name": "my-rpa-api",
+  "name": "smartcall-epark-dental",
   "version": "1.0.0",
-  "description": "SmartCall RPA API",
+  "description": "EPARK歯科予約システムのRPA自動化",
   "type": "module",
   "scripts": {
     "start": "node --loader ts-node/esm src/index.ts",
-    "dev": "node --loader ts-node/esm --watch src/index.ts",
+    "dev": "SMARTCALL_MODE=stub node --env-file=.env --loader ts-node/esm --watch src/index.ts",
     "build": "tsc",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build"
   },
   "dependencies": {
     "@smartcall/rpa-sdk": "github:milestone-corp/smartcall-rpa-sdk",
+    "dayjs": "^1.11.19",
     "express": "^5.2.1"
   },
   "devDependencies": {

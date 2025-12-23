@@ -8,9 +8,9 @@ import { BasePage } from '@smartcall/rpa-sdk';
 
 export class LoginPage extends BasePage {
   // セレクター定義（対象サイトに合わせて変更してください）
-  private readonly loginIdInput = '#login_id';
-  private readonly passwordInput = '#password';
-  private readonly loginButton = 'button[type="submit"]';
+  private readonly loginIdInput = '#loginId';
+  private readonly passwordInput = '#pwd';
+  private readonly loginButton = '.Bloginbtn';
 
   /**
    * ログインを実行
@@ -20,15 +20,14 @@ export class LoginPage extends BasePage {
     await this.fill(this.passwordInput, password);
     await this.click(this.loginButton);
 
-    // ログイン後のページ遷移を待機（対象サイトに合わせて変更）
-    await this.page.waitForURL(/\/dashboard/, { timeout: 15000 });
+    await this.page.locator(this.loginButton).waitFor({ state: 'detached' })
   }
 
   /**
    * ログイン成功を確認
    */
   async isLoggedIn(): Promise<boolean> {
-    const url = this.page.url();
-    return url.includes('/dashboard');
+    const logoutButton = await this.page.$('.BTopOperatorLogout')
+    return logoutButton !== null
   }
 }
