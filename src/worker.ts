@@ -50,9 +50,9 @@ createRpaJob<RpaJobData>(
     await screenshot.captureStep(page, '03-appoint-page');
 
     // 5. 空き枠を取得
-    const today = dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
-    const dateFrom = data.date_from || today;
-    const dateTo = data.date_to || dateFrom; // date_toが未指定の場合はdateFromと同じ
+    const today = dayjs().tz('Asia/Tokyo');
+    const dateFrom = data.date_from || today.format('YYYY-MM-DD');
+    const dateTo = data.date_to || today.add(7, 'day').format('YYYY-MM-DD'); // デフォルト: 7日後
 
     logger.info({ dateFrom, dateTo }, 'Fetching available slots');
 

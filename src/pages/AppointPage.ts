@@ -16,18 +16,14 @@ dayjs.extend(customParseFormat);
 export interface SlotInfo {
   /** 日付（YYYY-MM-DD形式） */
   date: string;
-  /** 開始時刻（HH:MM形式） */
-  start_time: string;
-  /** 終了時刻（HH:MM形式） */
-  end_time: string;
-  /** 担当者名（チェア名、スタッフ名など） */
-  resource_name: string;
-  /** メニュー名（任意） */
-  menu_name?: string;
+  /** 時刻（HH:MM形式） */
+  time: string;
   /** 所要時間（分） */
   duration_min: number;
-  /** 状態: available=空き, reserved=予約済み */
-  status: 'available' | 'reserved';
+  /** 空き枠数 */
+  stock: number;
+  /** リソース名（担当者名など） */
+  resource_name?: string;
 }
 
 /** 取得日数の選択肢 */
@@ -221,11 +217,10 @@ export class AppointPage extends BasePage {
 
       slots.push({
         date: isoDate,
-        start_time: startTime,
-        end_time: endTime,
-        resource_name: resourceName,
+        time: startTime,
         duration_min: durationMin,
-        status: 'available',
+        stock: 1,
+        resource_name: resourceName,
       });
     }
 
