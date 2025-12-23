@@ -10,7 +10,15 @@ import {
   type RpaJobContext,
   type RpaJobData,
 } from '@smartcall/rpa-sdk';
+import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
 import { LoginPage } from './pages/LoginPage.js';
+import { AppointPage } from './pages/AppointPage.js';
+
+// dayjsのタイムゾーンプラグインを有効化
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /**
  * RPAジョブを作成
@@ -22,11 +30,13 @@ createRpaJob<RpaJobData>(
 
     logger.info({ jobId: data.job_id, shopId: data.external_shop_id }, 'Starting job');
 
+    const BASE_URL = `https://control.haisha-yoyaku.jp/${data.external_shop_id}`;
+
     // 1. 認証情報を取得（環境変数から）
     const credentials = getCredentials();
 
     // 2. ログインページに遷移
-    await page.goto('https://your-reservation-system.com/login');
+    await page.goto(`${BASE_URL}/`);
     await screenshot.captureStep(page, '01-login-page');
 
     // 3. ログインを実行
@@ -34,25 +44,28 @@ createRpaJob<RpaJobData>(
     await loginPage.login(credentials.loginKey, credentials.loginPassword);
     await screenshot.captureStep(page, '02-after-login');
 
-    // 4. ビジネスロジックを実装
-    // TODO: 予約システムの操作を実装
-    // - 空き枠取得: data.date_from 〜 data.date_to の空き枠を取得
-    // - 予約作成: data.reservations の operation='create' を処理
-    // - 予約キャンセル: data.reservations の operation='cancel' を処理
+    // 4. アポイント管理台帳ページに遷移
+    const appointPage = new AppointPage(page);
+    await appointPage.navigate(BASE_URL);
+    await screenshot.captureStep(page, '03-appoint-page');
 
-    // 5. コールバックで結果を送信
+    // 5. 空き枠を取得
+    const today = dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
+    const dateFrom = data.date_from || today;
+    const dateTo = data.date_to || dateFrom; // date_toが未指定の場合はdateFromと同じ
+
+    logger.info({ dateFrom, dateTo }, 'Fetching available slots');
+
+    const slots = await appointPage.getAvailableSlots(dateFrom, dateTo);
+    await screenshot.captureStep(page, '04-after-fetch-slots');
+
+    logger.info({ slotCount: slots.length }, 'Fetched available slots');
+
+    // 6. コールバックで結果を送信
     await sendCallback(
       buildResult('success', {
-        available_slots: [
-          {
-            date: '2025-01-15',
-            time: '10:00',
-            duration_min: 60,
-            stock: 1,
-            resource_name: 'スタッフA',
-          },
-        ],
-        reservation_results: [],
+        type: 'available_slots',
+        slots,
       })
     );
 
@@ -63,7 +76,7 @@ createRpaJob<RpaJobData>(
       headless: true,
     },
     screenshot: {
-      baseDir: process.env.SCREENSHOT_DIR || './screenshots',
+      directory: process.env.SCREENSHOT_DIR || './screenshots',
     },
     concurrency: 1,
   }

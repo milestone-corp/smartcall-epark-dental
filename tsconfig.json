@@ -12,6 +12,12 @@
     "declarationMap": true,
     "sourceMap": true
   },
+  "ts-node": {
+    "experimentalSpecifierResolution": "node",
+    "experimentalResolver": true,
+    "esm": true,
+    "logError": true
+  },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

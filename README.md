@@ -1,6 +1,12 @@
-# My RPA API
+# SmartCall EPARK Dental
 
-SmartCall RPA APIプロジェクトのテンプレートです。
+EPARKの歯医者予約システム（haisha-yoyaku.jp）をSmartCallを用いて、予約管理をRPAにて自動化するプロジェクトです。
+
+## 機能
+
+- 空き枠の取得
+- 予約の作成
+- 予約のキャンセル
 
 ## セットアップ
 
@@ -19,8 +25,8 @@ npm run dev
 ## ディレクトリ構成
 
 ```
-my-rpa-api/
-├── Dockerfile          # 必須：デプロイ用
+smartcall-epark-dental/
+├── Dockerfile          # デプロイ用
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
@@ -32,16 +38,6 @@ my-rpa-api/
 │       └── LoginPage.ts
 └── screenshots/        # スクリーンショット保存先
 ```
-
-## 実装手順
-
-1. **LoginPage.ts を編集**: 対象サイトのセレクターを設定
-2. **worker.ts を編集**: ビジネスロジックを実装
-   - 空き枠取得
-   - 予約作成
-   - 予約キャンセル
-3. **ローカルテスト**: `npm run dev` で動作確認
-4. **GitHubにプッシュ**: 開発者ポータルからデプロイ
 
 ## デプロイ
 
