@@ -4,7 +4,12 @@
  * 空き枠の取得、予約の作成・キャンセルを行う
  */
 
-import { BasePage } from '@smartcall/rpa-sdk';
+import {
+  BasePage,
+  type ReservationRequest,
+  type ReservationResult,
+  type ScreenshotManager,
+} from '@smartcall/rpa-sdk';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 
@@ -49,9 +54,9 @@ export class AppointPage extends BasePage {
    */
   async navigate(baseUrl: string): Promise<void> {
     this.baseUrl = baseUrl;
-    await this.page.goto(`${baseUrl}/timeAppoint4M/appointmanager/`);
+    await this.goto(`${baseUrl}/timeAppoint4M/appointmanager/`);
     // スケジュール表示領域が読み込まれるまで待機
-    await this.page.waitForSelector(this.selectors.dateHeader);
+    await this.waitForSelector(this.selectors.dateHeader);
   }
 
   /**
@@ -150,6 +155,9 @@ export class AppointPage extends BasePage {
       }))
     );
 
+    // シフト情報を取得
+    const shiftRanges = await this.getShiftRanges();
+
     // 既存の予約情報を取得（予約済み枠を除外するため）
     const reservations = await this.page.$$eval(
       '.parts_schedule_body_reserve',
@@ -181,6 +189,38 @@ export class AppointPage extends BasePage {
       });
     };
 
+    /**
+     * 指定された時間枠をシフト時間で調整する
+     * @param slotStart 枠の開始時刻（HHMM）
+     * @param slotEnd 枠の終了時刻（HHMM）
+     * @returns 調整後の時間枠（シフト外の場合はnull）
+     */
+    const adjustToShift = (slotStart: string, slotEnd: string): { start: number; end: number } | null => {
+      if (shiftRanges.length === 0) {
+        // シフト情報がない場合は制限なし
+        return { start: parseInt(slotStart, 10), end: parseInt(slotEnd, 10) };
+      }
+
+      const slotStartNum = parseInt(slotStart, 10);
+      const slotEndNum = parseInt(slotEnd, 10);
+
+      // 枠とシフトが重なる時間帯を探す
+      for (const shift of shiftRanges) {
+        // 枠とシフトが重なっているかチェック
+        // 重なり条件: 枠の開始 < シフトの終了 AND 枠の終了 > シフトの開始
+        if (slotStartNum < shift.end && slotEndNum > shift.start) {
+          // 開始時刻をシフト開始時刻で調整（枠がシフト前から始まる場合）
+          const adjustedStart = Math.max(slotStartNum, shift.start);
+          // 終了時刻をシフト終了時刻で調整（枠がシフト後まで続く場合）
+          const adjustedEnd = Math.min(slotEndNum, shift.end);
+          return { start: adjustedStart, end: adjustedEnd };
+        }
+      }
+
+      // どのシフトとも重ならない場合はスキップ
+      return null;
+    };
+
     // 空き枠（activeクラスを持つカラム）を取得
     const activeColumns = await this.page.$$(`${this.selectors.timeColumn}.active`);
 
@@ -195,6 +235,10 @@ export class AppointPage extends BasePage {
       // 予約済みの枠はスキップ
       if (isSlotReserved(dateAttr, startAttr, endAttr, staffId)) continue;
 
+      // シフト時間で調整
+      const adjustedSlot = adjustToShift(startAttr, endAttr);
+      if (!adjustedSlot) continue;
+
       const isoDate = this.toIsoDate(dateAttr);
 
       // 終了日を超えたらスキップ
@@ -206,14 +250,17 @@ export class AppointPage extends BasePage {
       const staff = staffMap.find((s) => s.id === staffId);
       const resourceName = staff?.name || `スタッフ${staffId}`;
 
-      // 時刻を変換（HHMM → HH:MM）
-      const startTime = this.toTimeFormat(startAttr);
-      const endTime = this.toTimeFormat(endAttr);
+      // 調整後の時刻を変換（数値 → HH:MM）
+      const startTime = this.toTimeFormat(String(adjustedSlot.start).padStart(4, '0'));
+      const endTime = this.toTimeFormat(String(adjustedSlot.end).padStart(4, '0'));
 
       // 所要時間を計算（分）
       const [startH, startM] = startTime.split(':').map(Number);
       const [endH, endM] = endTime.split(':').map(Number);
       const durationMin = (endH * 60 + endM) - (startH * 60 + startM);
+
+      // 所要時間が0以下の場合はスキップ
+      if (durationMin <= 0) continue;
 
       slots.push({
         date: isoDate,
@@ -225,5 +272,330 @@ export class AppointPage extends BasePage {
     }
 
     return slots;
+  }
+
+  /**
+   * シフト情報をDOMから取得
+   *
+   * @returns シフト時間帯の配列（HHmm形式の数値）
+   */
+  private async getShiftRanges(): Promise<{ start: number; end: number }[]> {
+    const shiftTexts = await this.page.$$eval(
+      '.parts_shift_body .parts_shift_date p',
+      (elements) => elements.map((el) => el.textContent?.trim() || '')
+    );
+
+    const ranges: { start: number; end: number }[] = [];
+
+    for (const text of shiftTexts) {
+      // "09:00～12:20" のような形式をパース
+      const match = text.match(/(\d{2}):(\d{2})～(\d{2}):(\d{2})/);
+      if (match) {
+        const [, startHour, startMin, endHour, endMin] = match;
+
+        ranges.push({
+          start: parseInt(`${startHour}${startMin}`, 10),
+          end: parseInt(`${endHour}${endMin}`, 10),
+        });
+      }
+    }
+
+    return ranges;
+  }
+
+  /**
+   * 予約登録フォームを呼び出す
+   *
+   * popup_registFromTable3UI関数を呼び出し、新規アポイント登録ダイアログを表示する
+   *
+   * @param reservation 予約リクエスト
+   * @param staffId スタッフID（デフォルト: '1'）
+   * @param lineNo ライン番号（デフォルト: '1'）
+   * @param lineType ライン種別（デフォルト: '1'）
+   */
+  async openReservationForm(
+    reservation: ReservationRequest,
+    staffId: string = '1',
+    lineNo: string = '1',
+    lineType: string = '1'
+  ): Promise<void> {
+    // 予約日のスケジュールを表示
+    await this.drawSchedule(this.toYyyymmdd(reservation.date));
+
+    // 時刻をパース（HH:MM形式）
+    const [hourFrom, minuteFrom] = reservation.time.split(':');
+
+    // 所要時間から終了時刻を計算
+    const durationMin = reservation.duration_min || 30;
+    const startTime = dayjs(`${reservation.date} ${reservation.time}`, 'YYYY-MM-DD HH:mm');
+    const endTime = startTime.add(durationMin, 'minute');
+    const hourTo = endTime.format('HH');
+    const minuteTo = endTime.format('mm');
+
+    // dateTime形式: YYYYMMDDHHMM
+    const dateTime = `${this.toYyyymmdd(reservation.date)}${hourFrom}${minuteFrom}`;
+
+    // popup_registFromTable3UI を呼び出し
+    await this.page.evaluate(
+      ({ dateTime, staffId, lineNo, lineType, hourFrom, minuteFrom, hourTo, minuteTo }) => {
+        const win = window as unknown as {
+          /** スケジュール表から新規予約登録ポップアップを表示する */
+          popup_registFromTable3UI: (
+            /** 予約日時（YYYYMMDDHHMM形式） */
+            dateTime: string,
+            /** スタッフID（チェアID） */
+            staffId: string,
+            /** ライン番号 */
+            lineNo: string,
+            /** ライン種別 */
+            lineType: string,
+            /** メニューID（null の場合はメニュー未指定） */
+            menuId: null,
+            /** 開始時刻の時（HH形式） */
+            hourFrom: string,
+            /** 開始時刻の分（mm形式） */
+            minuteFrom: string,
+            /** 終了時刻の時（HH形式） */
+            hourTo: string,
+            /** 終了時刻の分（mm形式） */
+            minuteTo: string
+          ) => void;
+        };
+        win.popup_registFromTable3UI(
+          dateTime,
+          staffId,
+          lineNo,
+          lineType,
+          null, // menuId
+          hourFrom,
+          minuteFrom,
+          hourTo,
+          minuteTo
+        );
+      },
+      { dateTime, staffId, lineNo, lineType, hourFrom, minuteFrom, hourTo, minuteTo }
+    );
+
+    // ポップアップが表示されるまで待機
+    await this.waitForSelector('.register_appointment_simple_view');
+  }
+
+  /**
+   * 予約操作を一括処理する
+   *
+   * @param reservations 予約リクエストの配列
+   * @param screenshot スクリーンショットマネージャー
+   * @param staffId スタッフID
+   * @returns 予約操作結果の配列
+   */
+  async processReservations(
+    reservations: ReservationRequest[],
+    screenshot: ScreenshotManager,
+    staffId?: string,
+  ): Promise<ReservationResult[]> {
+    const results: ReservationResult[] = [];
+
+    for (let i = 0; i < reservations.length; i++) {
+      const reservation = reservations[i];
+
+      if (reservation.operation === 'create') {
+        const result = await this.createReservation(reservation, screenshot, i + 1, staffId);
+        results.push(result);
+      } else if (reservation.operation === 'cancel') {
+        // TODO: キャンセル処理を実装
+        results.push({
+          reservation_id: reservation.reservation_id,
+          operation: 'cancel',
+          status: 'failed',
+          error_code: 'NOT_IMPLEMENTED',
+          error_message: 'キャンセル処理は未実装です',
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * 予約を作成する
+   *
+   * @param reservation 予約リクエスト
+   * @param screenshot スクリーンショットマネージャー
+   * @param index 予約のインデックス（スクリーンショット用）
+   * @param staffId スタッフID
+   * @returns 予約操作結果
+   */
+  private async createReservation(
+    reservation: ReservationRequest,
+    screenshot: ScreenshotManager,
+    index: number,
+    staffId?: string
+  ): Promise<ReservationResult> {
+    try {
+      // 予約登録フォームを開く
+      await this.openReservationForm(reservation, staffId);
+      await screenshot.captureStep(this.page, `05-reservation-form-${index}`);
+
+      // フォームに入力
+      await this.fillReservationForm(reservation);
+      await screenshot.captureStep(this.page, `06-reservation-filled-${index}`);
+
+      // 登録ボタンをクリック
+      const submitResult = await this.submitReservationForm();
+      await screenshot.captureStep(this.page, `07-reservation-submitted-${index}`);
+
+      // API結果を確認
+      if (!submitResult.success) {
+        await screenshot.captureError(this.page, `reservation-error-${index}`);
+
+        // 失敗時はブラウザをリロードして状態をリセット
+        await this.page.reload();
+        await this.waitForSelector(this.selectors.dateHeader);
+
+        // 重複予約の場合は status: 'conflict'
+        const status = submitResult.errorCode === 'DUPLICATE_RESERVATION' ? 'conflict' : 'failed';
+
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'create',
+          status,
+          error_code: submitResult.errorCode,
+          error_message: submitResult.errorMessage,
+        };
+      }
+
+      // 予約IDを取得
+      const externalReservationId = await this.findReservationId(reservation, staffId);
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'create',
+        status: 'success',
+        external_reservation_id: externalReservationId,
+      };
+    } catch (error) {
+      await screenshot.captureError(this.page, `reservation-error-${index}`);
+
+      // 失敗時はブラウザをリロードして状態をリセット
+      await this.page.reload();
+      await this.waitForSelector(this.selectors.dateHeader);
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'create',
+        status: 'failed',
+        error_code: 'SYSTEM_ERROR',
+        error_message: error instanceof Error ? error.message : '予約作成に失敗しました',
+      };
+    }
+  }
+
+  /**
+   * 詳細情報フォームを開く
+   */
+  private async openDetailForm(): Promise<void> {
+    // 詳細情報ボタンをクリック
+    await this.click('#btnOpenAppointHover');
+
+    // 詳細フォームが表示されるまで待機
+    await this.waitForSelector('.appointment_detail_info');
+  }
+
+  /**
+   * 予約登録フォームに入力する
+   *
+   * @param reservation 予約リクエスト
+   */
+  private async fillReservationForm(reservation: ReservationRequest): Promise<void> {
+    // 詳細情報フォームを開く（備考フィールドがあるため）
+    await this.openDetailForm();
+
+    // 顧客名を姓と名に分割（スペースで分割、なければ全て姓として扱う）
+    const nameParts = reservation.customer_name.split(/\s+/);
+    const lastName = nameParts[0] || '';
+    const firstName = nameParts.slice(1).join(' ') || '';
+
+    // 姓を入力
+    await this.fill('#txtAppointLastName', lastName);
+
+    // 名を入力
+    await this.fill('#txtAppointFirstName', firstName);
+
+    // 電話番号を入力
+    await this.fill('#txtAppointTelNo', reservation.customer_phone);
+
+    // 備考を入力（詳細フォームにのみ存在）
+    if (reservation.notes) {
+      await this.fill('#txtAppointMemo', reservation.notes);
+    }
+  }
+
+  /**
+   * 予約登録フォームを送信する
+   *
+   * @returns 送信結果
+   */
+  private async submitReservationForm(): Promise<{
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  }> {
+    // APIレスポンスを待機しながら登録ボタンをクリック
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.url().includes('/timeAppoint4M/scheduleregister/registappoint') &&
+        response.request().method() === 'POST'
+    );
+
+    await this.click('.guest_foot_entry');
+
+    // APIレスポンスを取得して結果を確認
+    const response = await responsePromise;
+    const json = await response.json() as {
+      result: boolean;
+      err_messages?: string[];
+    };
+
+    if (!json.result) {
+      const errorMessage = json.err_messages?.join(', ') || '予約登録に失敗しました';
+
+      // 重複予約の判定
+      const isDuplicate = json.err_messages?.some((msg) => msg.includes('他の予約が存在'));
+ 
+      return {
+        success: false,
+        errorCode: isDuplicate ? 'DUPLICATE_RESERVATION' : 'SYSTEM_ERROR',
+        errorMessage,
+      };
+    }
+
+    // 詳細フォームが閉じるまで待機
+    await this.waitForSelector('.appointment_detail_info', { state: 'hidden' });
+
+    return { success: true };
+  }
+
+  /**
+   * 登録した予約のIDをDOMから取得する
+   *
+   * @param reservation 予約リクエスト
+   * @param staffId スタッフID
+   * @returns 予約システム側の予約ID
+   */
+  private async findReservationId(reservation: ReservationRequest, staffId?: string): Promise<string> {
+    // 予約情報からdata属性の値を計算
+    const date = this.toYyyymmdd(reservation.date);
+    const start = reservation.time.replace(':', '');
+    const durationMin = reservation.duration_min ?? 30;
+    const endTime = dayjs(`${reservation.date} ${reservation.time}`, 'YYYY-MM-DD HH:mm')
+      .add(durationMin, 'minute');
+    const end = endTime.format('HHmm');
+
+    // 属性セレクタで該当する予約要素を検索
+    let selector = `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"][data-end="${end}"]`;
+    if (staffId) selector += `[data-staff="${staffId}"]`
+    const reservationId = await this.getAttribute(selector, 'data-id');
+
+    return reservationId || '';
   }
 }
