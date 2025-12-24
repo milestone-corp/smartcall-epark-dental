@@ -53,7 +53,24 @@ createRpaJob<RpaJobData>(
       const credentials = getCredentials();
 
       // 2. ログインページに遷移
-      await page.goto(`${BASE_URL}/`);
+      const response = await page.goto(`${BASE_URL}/`);
+
+      // 404エラーの場合は店舗が見つからない
+      if (response?.status() === 404) {
+        logger.error({ shopId: data.external_shop_id }, 'Shop not found (404)');
+        await screenshot.captureError(page, 'shop-not-found');
+
+        await sendCallback(
+          buildResult('failed', {
+            error: {
+              code: 'SHOP_NOT_FOUND',
+              message: '指定された店舗が見つかりません',
+            },
+          })
+        );
+        return;
+      }
+
       await screenshot.captureStep(page, '01-login-page');
 
       // 3. ログインを実行
@@ -62,7 +79,7 @@ createRpaJob<RpaJobData>(
       await screenshot.captureStep(page, '02-after-login');
 
       // 4. アポイント管理台帳ページに遷移
-      const appointPage = new AppointPage(page);
+      const appointPage = new AppointPage(page, screenshot);
       await appointPage.navigate(BASE_URL);
       await screenshot.captureStep(page, '03-appoint-page');
 
@@ -84,7 +101,7 @@ createRpaJob<RpaJobData>(
 
       if (reservations.length > 0) {
         logger.info({ reservationCount: reservations.length }, 'Processing reservations');
-        reservationResults = await appointPage.processReservations(reservations, screenshot);
+        reservationResults = await appointPage.processReservations(reservations);
         logger.info({ results: reservationResults }, 'Reservation processing completed');
       }
 
@@ -124,6 +141,11 @@ createRpaJob<RpaJobData>(
       );
 
       logger.info({ jobStatus }, 'Job completed');
+
+      // エラーがある場合はスクリーンショット保持のためにthrow
+      if (errorInfo) {
+        throw new Error(errorInfo.message);
+      }
     } catch (error) {
       // 認証エラーの場合
       if (error instanceof AuthError) {
@@ -138,7 +160,7 @@ createRpaJob<RpaJobData>(
             },
           })
         );
-        return;
+        throw error;
       }
 
       // Playwrightタイムアウトエラーの場合
@@ -154,10 +176,10 @@ createRpaJob<RpaJobData>(
             },
           })
         );
-        return;
+        throw error;
       }
 
-      // その他のエラーは再スロー
+      // エラーは再スロー
       throw error;
     }
   },

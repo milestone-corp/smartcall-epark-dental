@@ -1,6 +1,6 @@
 # SmartCall EPARK Dental
 
-EPARKの歯医者予約システム（haisha-yoyaku.jp）をSmartCallを用いて、予約管理をRPAにて自動化するプロジェクトです。
+EPARKの歯医者予約システムをSmartCallを用いて、予約管理をRPAにて自動化するプロジェクトです。
 
 ## 機能
 

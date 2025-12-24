@@ -10,6 +10,7 @@ import {
   type ReservationResult,
   type ScreenshotManager,
 } from '@smartcall/rpa-sdk';
+import type { Page } from 'playwright';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 
@@ -35,7 +36,20 @@ export interface SlotInfo {
 type FetchDays = 1 | 3 | 8;
 
 export class AppointPage extends BasePage {
-  private baseUrl: string = '';
+  private readonly screenshot: ScreenshotManager;
+
+  /**
+   * アポイント管理台帳ページ
+   * 
+   * 空き枠の取得、予約の作成・キャンセルを行う
+   *
+   * @param page Playwrightのページオブジェクト
+   * @param screenshot スクリーンショットマネージャー
+   */
+  constructor(page: Page, screenshot: ScreenshotManager) {
+    super(page);
+    this.screenshot = screenshot;
+  }
 
   // セレクター定義
   private readonly selectors = {
@@ -53,7 +67,6 @@ export class AppointPage extends BasePage {
    * アポイント管理台帳ページに遷移
    */
   async navigate(baseUrl: string): Promise<void> {
-    this.baseUrl = baseUrl;
     await this.goto(`${baseUrl}/timeAppoint4M/appointmanager/`);
     // スケジュール表示領域が読み込まれるまで待機
     await this.waitForSelector(this.selectors.dateHeader);
@@ -384,13 +397,11 @@ export class AppointPage extends BasePage {
    * 予約操作を一括処理する
    *
    * @param reservations 予約リクエストの配列
-   * @param screenshot スクリーンショットマネージャー
    * @param staffId スタッフID
    * @returns 予約操作結果の配列
    */
   async processReservations(
     reservations: ReservationRequest[],
-    screenshot: ScreenshotManager,
     staffId?: string,
   ): Promise<ReservationResult[]> {
     const results: ReservationResult[] = [];
@@ -399,17 +410,11 @@ export class AppointPage extends BasePage {
       const reservation = reservations[i];
 
       if (reservation.operation === 'create') {
-        const result = await this.createReservation(reservation, screenshot, i + 1, staffId);
+        const result = await this.createReservation(reservation, i + 1, staffId);
         results.push(result);
       } else if (reservation.operation === 'cancel') {
-        // TODO: キャンセル処理を実装
-        results.push({
-          reservation_id: reservation.reservation_id,
-          operation: 'cancel',
-          status: 'failed',
-          error_code: 'NOT_IMPLEMENTED',
-          error_message: 'キャンセル処理は未実装です',
-        });
+        const result = await this.cancelReservation(reservation, i + 1);
+        results.push(result);
       }
     }
 
@@ -420,33 +425,31 @@ export class AppointPage extends BasePage {
    * 予約を作成する
    *
    * @param reservation 予約リクエスト
-   * @param screenshot スクリーンショットマネージャー
    * @param index 予約のインデックス（スクリーンショット用）
    * @param staffId スタッフID
    * @returns 予約操作結果
    */
   private async createReservation(
     reservation: ReservationRequest,
-    screenshot: ScreenshotManager,
     index: number,
     staffId?: string
   ): Promise<ReservationResult> {
     try {
       // 予約登録フォームを開く
       await this.openReservationForm(reservation, staffId);
-      await screenshot.captureStep(this.page, `05-reservation-form-${index}`);
+      await this.screenshot.captureStep(this.page, `05-reservation-form-${index}`);
 
       // フォームに入力
       await this.fillReservationForm(reservation);
-      await screenshot.captureStep(this.page, `06-reservation-filled-${index}`);
+      await this.screenshot.captureStep(this.page, `06-reservation-filled-${index}`);
 
       // 登録ボタンをクリック
       const submitResult = await this.submitReservationForm();
-      await screenshot.captureStep(this.page, `07-reservation-submitted-${index}`);
+      await this.screenshot.captureStep(this.page, `07-reservation-submitted-${index}`);
 
       // API結果を確認
       if (!submitResult.success) {
-        await screenshot.captureError(this.page, `reservation-error-${index}`);
+        await this.screenshot.captureError(this.page, `reservation-${index}`);
 
         // 失敗時はブラウザをリロードして状態をリセット
         await this.page.reload();
@@ -474,7 +477,7 @@ export class AppointPage extends BasePage {
         external_reservation_id: externalReservationId,
       };
     } catch (error) {
-      await screenshot.captureError(this.page, `reservation-error-${index}`);
+      await this.screenshot.captureError(this.page, `reservation-error-${index}`);
 
       // 失敗時はブラウザをリロードして状態をリセット
       await this.page.reload();
@@ -547,6 +550,7 @@ export class AppointPage extends BasePage {
         response.request().method() === 'POST'
     );
 
+    // 登録ボタンをクリック
     await this.click('.guest_foot_entry');
 
     // APIレスポンスを取得して結果を確認
@@ -554,17 +558,27 @@ export class AppointPage extends BasePage {
     const json = await response.json() as {
       result: boolean;
       err_messages?: string[];
+      alert_message?: string;
     };
 
     if (!json.result) {
-      const errorMessage = json.err_messages?.join(', ') || '予約登録に失敗しました';
+      let errorMessage = json.err_messages?.join(', ') || json.alert_message || '予約登録に失敗しました';
 
-      // 重複予約の判定
-      const isDuplicate = json.err_messages?.some((msg) => msg.includes('他の予約が存在'));
- 
+      // エラーコードを判定
+      let errorCode = 'SYSTEM_ERROR';
+
+      if (json.err_messages?.some((msg) => msg.includes('他の予約が存在'))) {
+        // 重複予約
+        errorCode = 'DUPLICATE_RESERVATION';
+      } else if (json.alert_message?.includes('勤務時間外')) {
+        // 空き枠なし（勤務時間外）
+        errorCode = 'SLOT_NOT_AVAILABLE';
+        errorMessage = '指定された時間帯に空きがありません'
+      }
+
       return {
         success: false,
-        errorCode: isDuplicate ? 'DUPLICATE_RESERVATION' : 'SYSTEM_ERROR',
+        errorCode,
         errorMessage,
       };
     }
@@ -593,9 +607,251 @@ export class AppointPage extends BasePage {
 
     // 属性セレクタで該当する予約要素を検索
     let selector = `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"][data-end="${end}"]`;
-    if (staffId) selector += `[data-staff="${staffId}"]`
+    if (staffId) selector += `[data-staff="${staffId}"]`;
     const reservationId = await this.getAttribute(selector, 'data-id');
 
     return reservationId || '';
+  }
+
+  /**
+   * 既存の予約を検索する
+   *
+   * 予約日、予約時刻、顧客名、電話番号をもとにDOM上の予約要素を検索し、
+   * appointId, staffId, lineNo, lineType を取得する
+   *
+   * @param reservation 予約リクエスト
+   * @returns 予約情報（見つからない場合はnull）
+   */
+  private async findExistingReservation(reservation: ReservationRequest): Promise<{
+    appointId: string;
+    staffId: string;
+    lineNo: string;
+    lineType: string;
+    date: string;
+    start: string;
+  } | null> {
+    // 予約日のスケジュールを表示
+    const date = this.toYyyymmdd(reservation.date);
+    await this.drawSchedule(date);
+
+    const start = reservation.time.replace(':', '');
+
+    // 顧客名からラベルに含まれるテキストを作成（姓名の間のスペースを除去して部分一致）
+    const customerName = reservation.customer_name.replace(/\s+/g, '');
+
+    // 電話番号からハイフンを除去（例: 090-1234-5678 → 09012345678）
+    const customerPhone = reservation.customer_phone.replace(/[-\s]/g, '');
+
+    // 該当日時の予約要素を取得
+    const reservations = await this.page.$$(
+      `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"]`
+    );
+
+    for (const element of reservations) {
+      // ラベルテキストを取得（例: "院内予約 / テスト太郎 / 09012345678"）
+      const labelElement = await element.$('.parts_schedule_body_reserve_label');
+      const labelText = await labelElement?.textContent() || '';
+
+      // スペースとスラッシュを除去して比較用テキストを作成
+      const normalizedLabel = labelText.replace(/[\s/]/g, '');
+
+      // 顧客名と電話番号の両方が含まれているか確認
+      const hasCustomerName = normalizedLabel.includes(customerName);
+      const hasCustomerPhone = normalizedLabel.includes(customerPhone);
+
+      if (hasCustomerName && hasCustomerPhone) {
+        // data属性を取得
+        const appointId = await element.getAttribute('data-id') || '';
+        const staffId = await element.getAttribute('data-staff') || '';
+        const lineNo = await element.getAttribute('data-line') || '';
+        const lineType = await element.getAttribute('data-type') || '';
+
+        return { appointId, staffId, lineNo, lineType, date, start };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 予約編集フォームを開く
+   *
+   * @param info 予約情報
+   */
+  private async openEditForm(info: {
+    appointId: string;
+    staffId: string;
+    lineNo: string;
+    lineType: string;
+    date: string;
+    start: string;
+  }): Promise<void> {
+    const { appointId, staffId, lineNo, lineType, date, start } = info;
+
+    // dateTime形式: YYYYMMDDHHMM
+    const dateTime = `${date}${start}`;
+
+    // popup_editFromTable3UI を呼び出し
+    await this.page.evaluate(
+      ({ dateTime, staffId, lineNo, lineType, appointId }) => {
+        const win = window as unknown as {
+          popup_editFromTable3UI: (
+            dateTime: number,
+            staffId: number,
+            lineNo: number,
+            lineType: number,
+            appointId: string,
+            mode: number
+          ) => void;
+        };
+        win.popup_editFromTable3UI(
+          Number(dateTime),
+          Number(staffId),
+          Number(lineNo),
+          Number(lineType),
+          appointId,
+          1 // 編集モード
+        );
+      },
+      { dateTime, staffId, lineNo, lineType, appointId }
+    );
+
+    // ポップアップが表示されるまで待機
+    await this.waitForSelector('.appointment_detail_info.open');
+  }
+
+  /**
+   * 予約をキャンセルする
+   *
+   * @param reservation 予約リクエスト
+   * @param index 予約のインデックス（スクリーンショット用）
+   * @returns 予約操作結果
+   */
+  private async cancelReservation(
+    reservation: ReservationRequest,
+    index: number
+  ): Promise<ReservationResult> {
+    try {
+      // 既存の予約を検索
+      const existingReservation = await this.findExistingReservation(reservation);
+
+      if (!existingReservation) {
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'cancel',
+          status: 'failed',
+          error_code: 'RESERVATION_NOT_FOUND',
+          error_message: '指定された予約が見つかりません',
+        };
+      }
+
+      // 予約編集フォームを開く
+      await this.openEditForm(existingReservation);
+      await this.screenshot.captureStep(this.page, `05-cancel-form-${index}`);
+
+      // キャンセル処理を実行
+      const cancelResult = await this.submitCancelForm(existingReservation.date);
+      await this.screenshot.captureStep(this.page, `06-cancel-submitted-${index}`);
+
+      if (!cancelResult.success) {
+        await this.screenshot.captureError(this.page, `cancel-result-${index}`);
+
+        // 失敗時はブラウザをリロードして状態をリセット
+        await this.page.reload();
+        await this.waitForSelector(this.selectors.dateHeader);
+
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'cancel',
+          status: 'failed',
+          error_code: cancelResult.errorCode || 'SYSTEM_ERROR',
+          error_message: cancelResult.errorMessage,
+        };
+      }
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'cancel',
+        status: 'success',
+        external_reservation_id: existingReservation.appointId,
+      };
+    } catch (error) {
+      await this.screenshot.captureError(this.page, `cancel-${index}`);
+
+      // 失敗時はブラウザをリロードして状態をリセット
+      await this.page.reload();
+      await this.waitForSelector(this.selectors.dateHeader);
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'cancel',
+        status: 'failed',
+        error_code: 'SYSTEM_ERROR',
+        error_message: error instanceof Error ? error.message : '予約キャンセルに失敗しました',
+      };
+    }
+  }
+
+  /**
+   * キャンセルフォームを送信する
+   *
+   * @param reservationDate 予約日（YYYYMMDD形式）
+   * @returns 送信結果
+   */
+  private async submitCancelForm(reservationDate: string): Promise<{
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  }> {
+    // 受付キャンセルボタンをクリック
+    await this.click('.guest_foot_cancel');
+
+    // 確認ダイアログが表示されるまで待機
+    await this.waitForSelector('.confirm_cancel_appointment.open');
+
+    // 当日かどうかでキャンセル理由を選択
+    // ※ ラジオボタンはカスタムスタイルで<span>がオーバーレイされているためforce: trueが必要
+    const today = dayjs().tz('Asia/Tokyo').format('YYYYMMDD');
+    if (reservationDate === today) {
+      // 当日の場合: 「当日、連絡なし」を選択
+      await this.click('#rdoReasonNoContact', { force: true });
+    } else {
+      // 当日以外の場合: 「連絡あり」を選択
+      await this.click('#rdoReasonContact', { force: true });
+    }
+
+    // キャンセル確認ダイアログのスクリーンショット
+    await this.screenshot.captureStep(this.page, '07-cancel-confirm-dialog');
+
+    // APIレスポンスを待機しながら決定ボタンをクリック
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.url().includes('/timeAppoint4M/scheduleregister/cancelappoint') &&
+        response.request().method() === 'POST'
+    );
+
+    await this.click('.guest_foot_confirm_cancel_appointment');
+
+    // APIレスポンスを取得して結果を確認
+    const response = await responsePromise;
+    const json = await response.json() as {
+      result: boolean;
+      messages?: string[];
+    };
+
+    if (!json.result) {
+      const errorMessage = json.messages?.join(', ') || '予約キャンセルに失敗しました';
+
+      return {
+        success: false,
+        errorCode: 'SYSTEM_ERROR',
+        errorMessage,
+      };
+    }
+
+    // フォームが閉じるまで待機
+    await this.waitForSelector('.appointment_detail_info.open', { state: 'hidden' });
+
+    return { success: true };
   }
 }

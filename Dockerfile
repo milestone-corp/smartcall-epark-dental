@@ -12,9 +12,9 @@ RUN npm ci
 # アプリケーションコードをコピー
 COPY . .
 
-# TypeScriptの場合はビルド
-RUN chmod +x ./node_modules/.bin/tsc
-RUN npm run build
+# TypeScriptの場合はビルド（不要なら削除）
+# RUN chmod +x ./node_modules/.bin/tsc
+# RUN npm run build
 
 # ヘルスチェック用のcurlをインストール
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
