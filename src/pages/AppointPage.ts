@@ -63,6 +63,8 @@ export class AppointPage extends BasePage {
     staffList: '.all_staff_list',
     /** 時間枠セル（各時間枠のカラム） */
     timeColumn: '.parts_schedule_body_column',
+    /** WEBメニュー選択 */
+    menuSelect: '#selAppointMenu',
   };
 
   /**
@@ -558,6 +560,11 @@ export class AppointPage extends BasePage {
     // 詳細情報フォームを開く（備考フィールドがあるため）
     await this.openDetailForm();
 
+    // メニューを選択（menu_nameが指定されている場合）
+    if (reservation.menu_name) {
+      await this.selectMenu(reservation.menu_name);
+    }
+
     // 顧客名を姓と名に分割（スペースで分割、なければ全て姓として扱う）
     const nameParts = reservation.customer_name.split(/\s+/);
     const lastName = nameParts[0] || '';
@@ -575,6 +582,37 @@ export class AppointPage extends BasePage {
     // 備考を入力（詳細フォームにのみ存在）
     if (reservation.notes) {
       await this.fill('#txtAppointMemo', reservation.notes);
+    }
+  }
+
+  /**
+   * メニューを選択する
+   *
+   * @param menuName メニュー名
+   */
+  private async selectMenu(menuName: string): Promise<void> {
+    // WEBメニューを有効化する
+    await this.page.$eval(this.selectors.menuSelect, (el) => {
+      el.removeAttribute('disabled');
+    });
+
+    // メニュー名またはメニュー番号に一致するオプションを検索して選択
+    const optionValue = await this.page.$eval(
+      this.selectors.menuSelect,
+      (select, name) => {
+        const options = Array.from(select.querySelectorAll('option'));
+        // メニュー番号（value）で検索
+        const byValue = options.find((opt) => opt.value === name);
+        if (byValue) return byValue.value;
+        // メニュー名（title または textContent）で検索
+        const byName = options.find((opt) => opt.title === name || opt.textContent?.trim().startsWith(name));
+        return byName?.value || null;
+      },
+      menuName
+    );
+
+    if (optionValue) {
+      await this.page.selectOption(this.selectors.menuSelect, optionValue);
     }
   }
 
@@ -651,7 +689,8 @@ export class AppointPage extends BasePage {
     const end = endTime.format('HHmm');
 
     // 属性セレクタで該当する予約要素を検索
-    let selector = `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"][data-end="${end}"]`;
+    let selector = `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"]`;
+    if (reservation.duration_min && !reservation.menu_name) selector += `[data-end="${end}"]`
     if (staffId) selector += `[data-staff="${staffId}"]`;
     const reservationId = await this.getAttribute(selector, 'data-id');
 

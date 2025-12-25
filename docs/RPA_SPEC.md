@@ -97,6 +97,7 @@ interface SlotInfo {
 3. 簡易フォームが表示されるまで待機
 4. 詳細情報ボタンをクリック（#btnOpenAppointHover）
 5. 詳細フォームに顧客情報を入力:
+   - WEBメニュー（#selAppointMenu）※任意
    - 姓（#txtAppointLastName）
    - 名（#txtAppointFirstName）
    - 電話番号（#txtAppointTelNo）
@@ -129,24 +130,29 @@ popup_registFromTable3UI(
 
 ### 2.4 使用するセレクター
 
-| セレクター                           | 用途             |
-|-------------------------------------|------------------|
-| `.register_appointment_simple_view` | 簡易予約フォーム |
-| `#btnOpenAppointHover`              | 詳細情報ボタン   |
-| `.appointment_detail_info`          | 詳細予約フォーム |
-| `#txtAppointLastName`               | 姓入力欄         |
-| `#txtAppointFirstName`              | 名入力欄         |
-| `#txtAppointTelNo`                  | 電話番号入力欄   |
-| `#txtAppointMemo`                   | 備考入力欄       |
-| `.guest_foot_entry`                 | 登録ボタン       |
+| セレクター                           | 用途               |
+|-------------------------------------|--------------------|
+| `.register_appointment_simple_view` | 簡易予約フォーム   |
+| `#btnOpenAppointHover`              | 詳細情報ボタン     |
+| `.appointment_detail_info`          | 詳細予約フォーム   |
+| `#selAppointMenu`                   | WEBメニュー選択    |
+| `#txtAppointLastName`               | 姓入力欄           |
+| `#txtAppointFirstName`              | 名入力欄           |
+| `#txtAppointTelNo`                  | 電話番号入力欄     |
+| `#txtAppointMemo`                   | 備考入力欄         |
+| `.guest_foot_entry`                 | 登録ボタン         |
 
-### 2.5 使用するAPI
+### 2.5 WEBメニュー選択
+
+メニュー名（`menu_name`）は `option` 要素の `title` 属性と照合します。
+
+### 2.6 使用するAPI
 
 | エンドポイント                                   | メソッド  | 用途     |
 |-------------------------------------------------|----------|----------|
 | `/timeAppoint4M/scheduleregister/registappoint` | POST     | 予約登録 |
 
-### 2.6 APIレスポンス
+### 2.7 APIレスポンス
 
 ```typescript
 interface RegistAppointResponse {
@@ -156,7 +162,7 @@ interface RegistAppointResponse {
 }
 ```
 
-### 2.7 エラー判定
+### 2.8 エラー判定
 
 | 条件                                     | エラーコード            |
 |------------------------------------------|-------------------------|
@@ -164,7 +170,7 @@ interface RegistAppointResponse {
 | `alert_message` に「勤務時間外」を含む    | `SLOT_NOT_AVAILABLE`    |
 | その他の失敗                             | `SYSTEM_ERROR`          |
 
-### 2.8 予約IDの取得
+### 2.9 予約IDの取得
 
 登録成功後、DOM上の予約要素から`data-id`属性を取得します。
 
