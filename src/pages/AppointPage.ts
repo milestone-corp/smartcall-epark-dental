@@ -36,6 +36,8 @@ export interface SlotInfo {
 type FetchDays = 1 | 3 | 8;
 
 export class AppointPage extends BasePage {
+  /** 1回のスケジュール描画で取得できる日数 */
+  private readonly FETCH_DAYS: FetchDays = 8;
   private readonly screenshot: ScreenshotManager;
 
   /**
@@ -147,17 +149,58 @@ export class AppointPage extends BasePage {
 
   /**
    * 指定日付の空き枠を取得
+   *
+   * １回の取得可能日数以上の期間を指定した場合は、分割して逐次取得します。
+   *
    * @param dateFrom 開始日 (YYYY-MM-DD)
    * @param dateTo 終了日 (YYYY-MM-DD)
    */
   async getAvailableSlots(dateFrom: string, dateTo: string): Promise<SlotInfo[]> {
     const slots: SlotInfo[] = [];
 
-    // 8日分ずつ取得する設定に変更
-    await this.setFetchDays(8);
+    // １回に取得する日数を設定
+    await this.setFetchDays(this.FETCH_DAYS);
 
-    // 開始日からスケジュールを描画
-    await this.drawSchedule(this.toYyyymmdd(dateFrom));
+    // 開始日と終了日をdayjsオブジェクトに変換
+    let currentDate = dayjs(dateFrom);
+    const endDate = dayjs(dateTo);
+
+    // 逐次取得
+    let chunkIndex = 0;
+    while (this.FETCH_DAYS && (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day'))) {
+      // 現在の開始日からスケジュールを描画
+      await this.drawSchedule(currentDate.format('YYYYMMDD'));
+
+      // 今回の取得範囲の終了日を計算（１回の取得日数上限後または全体の終了日のいずれか早い方）
+      const chunkEndDate = currentDate.add(this.FETCH_DAYS - 1, 'day');
+      const effectiveEndDate = chunkEndDate.isAfter(endDate) ? endDate : chunkEndDate;
+
+      // 現在のスケジュール表示から空き枠を抽出
+      const chunkSlots = await this.extractSlotsFromCurrentView(
+        currentDate.format('YYYY-MM-DD'),
+        effectiveEndDate.format('YYYY-MM-DD')
+      );
+
+      slots.push(...chunkSlots);
+
+      // スクリーンショットを撮影
+      await this.screenshot.captureStep(this.page, `04-fetch-slots-${++chunkIndex}`);
+
+      // 次の取得開始日に移動
+      currentDate = currentDate.add(this.FETCH_DAYS, 'day');
+    }
+
+    return slots;
+  }
+
+  /**
+   * 現在表示中のスケジュールから空き枠を抽出
+   *
+   * @param dateFrom 取得開始日 (YYYY-MM-DD)
+   * @param dateTo 取得終了日 (YYYY-MM-DD)
+   */
+  private async extractSlotsFromCurrentView(dateFrom: string, dateTo: string): Promise<SlotInfo[]> {
+    const slots: SlotInfo[] = [];
 
     // スタッフ情報を取得
     const staffMap = await this.page.$$eval(

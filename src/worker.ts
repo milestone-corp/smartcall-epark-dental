@@ -91,7 +91,6 @@ createRpaJob<RpaJobData>(
       logger.info({ dateFrom, dateTo }, 'Fetching available slots');
 
       const slots = await appointPage.getAvailableSlots(dateFrom, dateTo);
-      await screenshot.captureStep(page, '04-after-fetch-slots');
 
       logger.info({ slotCount: slots.length }, 'Fetched available slots');
 
