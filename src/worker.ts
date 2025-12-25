@@ -32,20 +32,6 @@ createRpaJob<RpaJobData>(
 
     logger.info({ jobId: data.job_id, shopId: data.external_shop_id }, 'Starting job');
 
-    // external_shop_idが未指定の場合はエラー
-    if (!data.external_shop_id) {
-      logger.error('external_shop_id is not specified');
-      await sendCallback(
-        buildResult('failed', {
-          error: {
-            code: 'SHOP_NOT_FOUND',
-            message: '店舗IDが指定されていません',
-          },
-        })
-      );
-      return;
-    }
-
     const BASE_URL = `https://control.haisha-yoyaku.jp/${data.external_shop_id}`;
 
     try {
@@ -185,6 +171,10 @@ createRpaJob<RpaJobData>(
   {
     browser: {
       headless: true,
+      viewport: {
+        width: 1485,
+        height: 1440,
+      }
     },
     screenshot: {
       directory: process.env.SCREENSHOT_DIR || './screenshots',

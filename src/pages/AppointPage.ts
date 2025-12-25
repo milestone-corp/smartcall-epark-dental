@@ -477,22 +477,24 @@ export class AppointPage extends BasePage {
     index: number,
     staffId?: string
   ): Promise<ReservationResult> {
+    const idx = String(index).padStart(2, '0');
+
     try {
       // 予約登録フォームを開く
       await this.openReservationForm(reservation, staffId);
-      await this.screenshot.captureStep(this.page, `05-reservation-form-${index}`);
+      await this.screenshot.captureStep(this.page, `05-${idx}-reservation-form`);
 
       // フォームに入力
       await this.fillReservationForm(reservation);
-      await this.screenshot.captureStep(this.page, `06-reservation-filled-${index}`);
+      await this.screenshot.captureStep(this.page, `06-${idx}-reservation-filled`);
 
       // 登録ボタンをクリック
       const submitResult = await this.submitReservationForm();
-      await this.screenshot.captureStep(this.page, `07-reservation-submitted-${index}`);
+      await this.screenshot.captureStep(this.page, `07-${idx}-reservation-submitted`);
 
       // API結果を確認
       if (!submitResult.success) {
-        await this.screenshot.captureError(this.page, `reservation-${index}`);
+        await this.screenshot.captureError(this.page, `${idx}-reservation`);
 
         // 失敗時はブラウザをリロードして状態をリセット
         await this.page.reload();
@@ -520,7 +522,7 @@ export class AppointPage extends BasePage {
         external_reservation_id: externalReservationId,
       };
     } catch (error) {
-      await this.screenshot.captureError(this.page, `reservation-error-${index}`);
+      await this.screenshot.captureError(this.page, `${idx}-reservation-error`);
 
       // 失敗時はブラウザをリロードして状態をリセット
       await this.page.reload();
@@ -774,6 +776,8 @@ export class AppointPage extends BasePage {
     reservation: ReservationRequest,
     index: number
   ): Promise<ReservationResult> {
+    const idx = String(index).padStart(2, '0');
+
     try {
       // 既存の予約を検索
       const existingReservation = await this.findExistingReservation(reservation);
@@ -790,14 +794,14 @@ export class AppointPage extends BasePage {
 
       // 予約編集フォームを開く
       await this.openEditForm(existingReservation);
-      await this.screenshot.captureStep(this.page, `05-cancel-form-${index}`);
+      await this.screenshot.captureStep(this.page, `05-${idx}-cancel-form`);
 
       // キャンセル処理を実行
-      const cancelResult = await this.submitCancelForm(existingReservation.date);
-      await this.screenshot.captureStep(this.page, `06-cancel-submitted-${index}`);
+      const cancelResult = await this.submitCancelForm(existingReservation.date, `06-${idx}`);
+      await this.screenshot.captureStep(this.page, `07-${idx}-cancel-submitted`);
 
       if (!cancelResult.success) {
-        await this.screenshot.captureError(this.page, `cancel-result-${index}`);
+        await this.screenshot.captureError(this.page, `${idx}-cancel-result`);
 
         // 失敗時はブラウザをリロードして状態をリセット
         await this.page.reload();
@@ -819,7 +823,7 @@ export class AppointPage extends BasePage {
         external_reservation_id: existingReservation.appointId,
       };
     } catch (error) {
-      await this.screenshot.captureError(this.page, `cancel-${index}`);
+      await this.screenshot.captureError(this.page, `${idx}-cancel`);
 
       // 失敗時はブラウザをリロードして状態をリセット
       await this.page.reload();
@@ -839,9 +843,10 @@ export class AppointPage extends BasePage {
    * キャンセルフォームを送信する
    *
    * @param reservationDate 予約日（YYYYMMDD形式）
+   * @param prefix スクリーンショット用prefix
    * @returns 送信結果
    */
-  private async submitCancelForm(reservationDate: string): Promise<{
+  private async submitCancelForm(reservationDate: string, prefix: string): Promise<{
     success: boolean;
     errorCode?: string;
     errorMessage?: string;
@@ -864,7 +869,7 @@ export class AppointPage extends BasePage {
     }
 
     // キャンセル確認ダイアログのスクリーンショット
-    await this.screenshot.captureStep(this.page, '07-cancel-confirm-dialog');
+    await this.screenshot.captureStep(this.page, `${prefix}-cancel-confirm-dialog`);
 
     // APIレスポンスを待機しながら決定ボタンをクリック
     const responsePromise = this.page.waitForResponse(
