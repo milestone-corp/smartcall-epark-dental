@@ -6,8 +6,8 @@
 
 import {
   BasePage,
-  type ReservationRequest,
-  type ReservationResult,
+  type ReservationRequest as ReservationRequestBase,
+  type ReservationResult as ReservationResultBase,
   type ScreenshotManager,
 } from '@smartcall/rpa-sdk';
 import type { Page } from 'playwright';
@@ -15,6 +15,20 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 
 dayjs.extend(customParseFormat);
+
+/**
+ * 予約リクエスト（SDKの型を拡張してdeleteオペレーションを追加）
+ */
+export type ReservationRequest = Omit<ReservationRequestBase, 'operation'> & {
+  operation: ReservationRequestBase['operation'] | 'delete';
+};
+
+/**
+ * 予約結果（SDKの型を拡張してdeleteオペレーションを追加）
+ */
+export type ReservationResult = Omit<ReservationResultBase, 'operation'> & {
+  operation: ReservationResultBase['operation'] | 'delete';
+};
 
 /**
  * 空き枠情報
@@ -460,6 +474,9 @@ export class AppointPage extends BasePage {
       } else if (reservation.operation === 'cancel') {
         const result = await this.cancelReservation(reservation, i + 1);
         results.push(result);
+      } else if (reservation.operation === 'delete') {
+        const result = await this.deleteReservation(reservation, i + 1);
+        results.push(result);
       }
     }
 
@@ -566,18 +583,26 @@ export class AppointPage extends BasePage {
     }
 
     // 顧客名を姓と名に分割（スペースで分割、なければ全て姓として扱う）
-    const nameParts = reservation.customer_name.split(/\s+/);
-    const lastName = nameParts[0] || '';
-    const firstName = nameParts.slice(1).join(' ') || '';
+    if (reservation.customer_name) {
+      const nameParts = reservation.customer_name.split(/\s+/);
+      const lastName = nameParts[0] || '';
+      const firstName = nameParts.slice(1).join(' ') || '';
 
-    // 姓を入力
-    await this.fill('#txtAppointLastName', lastName);
+      // 姓を入力
+      if (lastName) {
+        await this.fill('#txtAppointLastName', lastName);
+      }
 
-    // 名を入力
-    await this.fill('#txtAppointFirstName', firstName);
+      // 名を入力
+      if (firstName) {
+        await this.fill('#txtAppointFirstName', firstName);
+      }
+    }
 
     // 電話番号を入力
-    await this.fill('#txtAppointTelNo', reservation.customer_phone);
+    if (reservation.customer_phone) {
+      await this.fill('#txtAppointTelNo', reservation.customer_phone);
+    }
 
     // 備考を入力（詳細フォームにのみ存在）
     if (reservation.notes) {
@@ -938,6 +963,132 @@ export class AppointPage extends BasePage {
 
     // フォームが閉じるまで待機
     await this.waitForSelector('.appointment_detail_info.open', { state: 'hidden' });
+
+    return { success: true };
+  }
+
+  /**
+   * 予約を削除する
+   *
+   * @param reservation 予約リクエスト
+   * @param index 予約のインデックス（スクリーンショット用）
+   * @returns 予約操作結果
+   */
+  private async deleteReservation(
+    reservation: ReservationRequest,
+    index: number
+  ): Promise<ReservationResult> {
+    const idx = String(index).padStart(2, '0');
+
+    try {
+      // 既存の予約を検索
+      const existingReservation = await this.findExistingReservation(reservation);
+
+      if (!existingReservation) {
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'delete',
+          status: 'failed',
+          error_code: 'RESERVATION_NOT_FOUND',
+          error_message: '指定された予約が見つかりません',
+        };
+      }
+
+      // 予約編集フォームを開く
+      await this.openEditForm(existingReservation);
+      await this.screenshot.captureStep(this.page, `05-${idx}-delete-form`);
+
+      // 削除処理を実行
+      const deleteResult = await this.submitDeleteForm(`06-${idx}`);
+      await this.screenshot.captureStep(this.page, `07-${idx}-delete-submitted`);
+
+      if (!deleteResult.success) {
+        await this.screenshot.captureError(this.page, `${idx}-delete-result`);
+
+        // 失敗時はブラウザをリロードして状態をリセット
+        await this.page.reload();
+        await this.waitForSelector(this.selectors.dateHeader);
+
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'delete',
+          status: 'failed',
+          error_code: deleteResult.errorCode || 'SYSTEM_ERROR',
+          error_message: deleteResult.errorMessage,
+        };
+      }
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'delete',
+        status: 'success',
+        external_reservation_id: existingReservation.appointId,
+      };
+    } catch (error) {
+      await this.screenshot.captureError(this.page, `${idx}-delete`);
+
+      // 失敗時はブラウザをリロードして状態をリセット
+      await this.page.reload();
+      await this.waitForSelector(this.selectors.dateHeader);
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'delete',
+        status: 'failed',
+        error_code: 'SYSTEM_ERROR',
+        error_message: error instanceof Error ? error.message : '予約削除に失敗しました',
+      };
+    }
+  }
+
+  /**
+   * 削除フォームを送信する
+   *
+   * @param prefix スクリーンショット用prefix
+   * @returns 送信結果
+   */
+  private async submitDeleteForm(prefix: string): Promise<{
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  }> {
+    // 受付削除ボタンをクリック
+    await this.click('.guest_foot_remove');
+
+    // 確認ダイアログが表示されるまで待機
+    await this.waitForSelector('.parts_dialog_home');
+
+    // 削除確認ダイアログのスクリーンショット
+    await this.screenshot.captureStep(this.page, `${prefix}-delete-confirm-dialog`);
+
+    // APIレスポンスを待機しながらOKボタンをクリック
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.url().includes('/timeAppoint4M/scheduleregister/deleteappoint') &&
+        response.request().method() === 'POST'
+    );
+
+    await this.click('.parts_dialog_ok');
+
+    // APIレスポンスを取得して結果を確認
+    const response = await responsePromise;
+    const json = await response.json() as {
+      result: boolean;
+      messages?: string[];
+    };
+
+    if (!json.result) {
+      const errorMessage = json.messages?.join(', ') || '予約削除に失敗しました';
+
+      return {
+        success: false,
+        errorCode: 'SYSTEM_ERROR',
+        errorMessage,
+      };
+    }
+
+    // ダイアログが閉じるまで待機
+    await this.waitForSelector('.parts_dialog_home', { state: 'hidden' });
 
     return { success: true };
   }

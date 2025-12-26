@@ -264,7 +264,67 @@ interface CancelAppointResponse {
 
 ---
 
-## 4. エラーコード一覧
+## 4. 予約の削除
+
+### 4.1 概要
+
+既存の予約を検索し、削除処理を実行します。
+
+※ この機能はRPA SDK仕様にはない独自拡張です。キャンセルとは異なり、予約履歴を残さずに完全に削除します。
+
+### 4.2 処理フロー
+
+```
+1. 予約日のスケジュールを描画（Schedule.draw）
+2. DOM上で該当予約を検索（日時・顧客名・電話番号で照合）
+3. 予約編集ポップアップを表示（popup_editFromTable3UI 関数を呼び出し）
+4. 詳細フォームが表示されるまで待機
+5. 受付削除ボタンをクリック（.guest_foot_remove）
+6. 削除確認ダイアログが表示されるまで待機
+7. OKボタンをクリック（.parts_dialog_ok）
+8. deleteappoint API のレスポンスを確認
+9. 結果を返却
+```
+
+### 4.3 予約の検索
+
+キャンセルと同様の方法で予約を検索します（3.3 参照）。
+
+### 4.4 使用するセレクター
+
+| セレクター                            | 用途                     |
+|--------------------------------------|--------------------------|
+| `.parts_schedule_body_reserve`        | 予約要素                 |
+| `.parts_schedule_body_reserve_label`  | 予約ラベル               |
+| `.appointment_detail_info.open`       | 詳細フォーム（開いた状態） |
+| `.guest_foot_remove`                  | 受付削除ボタン           |
+| `.parts_dialog_home`                  | 削除確認ダイアログ       |
+| `.parts_dialog_ok`                    | OKボタン                 |
+| `.parts_dialog_cancel`                | キャンセルボタン         |
+
+### 4.5 使用するAPI
+
+| エンドポイント                                   | メソッド  | 用途     |
+|-------------------------------------------------|----------|----------|
+| `/timeAppoint4M/scheduleregister/deleteappoint` | POST     | 予約削除 |
+
+### 4.6 APIレスポンス
+
+```typescript
+interface DeleteAppointResponse {
+  result: boolean;      // 成功/失敗
+  messages?: string[];  // メッセージ配列（失敗時）
+}
+```
+
+### 4.7 注意事項
+
+- 削除された予約は復元できません
+- 予約が見つからない場合は`RESERVATION_NOT_FOUND`エラーを返却
+
+---
+
+## 5. エラーコード一覧
 
 | コード                  | 説明           | 発生条件                          |
 |-------------------------|----------------|---------------------------------|
@@ -273,16 +333,16 @@ interface CancelAppointResponse {
 | `SHOP_NOT_FOUND`        | 店舗が不正     | 店舗ページが404エラー              |
 | `DUPLICATE_RESERVATION` | 重複予約       | 同一時間帯に既存予約あり            |
 | `SLOT_NOT_AVAILABLE`    | 空き枠なし     | 勤務時間外への予約                 |
-| `RESERVATION_NOT_FOUND` | 予約未発見     | キャンセル対象が見つからない        |
+| `RESERVATION_NOT_FOUND` | 予約未発見     | キャンセル/削除対象が見つからない   |
 | `SYSTEM_ERROR`          | システムエラー | その他のエラー                     |
 
 ---
 
-## 5. スクリーンショット
+## 6. スクリーンショット
 
 各処理ステップでスクリーンショットを保存します。
 
-### 5.1 ステップスクリーンショット
+### 6.1 ステップスクリーンショット
 
 | ファイル名                          | タイミング                   |
 |-------------------------------------|----------------------------|
@@ -296,8 +356,11 @@ interface CancelAppointResponse {
 | `05-{nn}-cancel-form.png`            | キャンセルフォーム表示時     |
 | `06-{nn}-cancel-confirm-dialog.png`  | キャンセル確認ダイアログ     |
 | `07-{nn}-cancel-submitted.png`       | キャンセル完了時            |
+| `05-{nn}-delete-form.png`            | 削除フォーム表示時          |
+| `06-{nn}-delete-confirm-dialog.png`  | 削除確認ダイアログ          |
+| `07-{nn}-delete-submitted.png`       | 削除完了時                 |
 
-### 5.2 エラースクリーンショット
+### 6.2 エラースクリーンショット
 
 | ファイル名                       | タイミング               |
 |---------------------------------|-------------------------|
@@ -307,10 +370,12 @@ interface CancelAppointResponse {
 | `error-{nn}-reservation.png`     | 予約作成エラー時         |
 | `error-{nn}-cancel-result.png`   | キャンセルAPIエラー時    |
 | `error-{nn}-cancel.png`          | キャンセル例外時         |
+| `error-{nn}-delete-result.png`   | 削除APIエラー時          |
+| `error-{nn}-delete.png`          | 削除例外時              |
 
 ---
 
-## 6. 関連資料
+## 7. 関連資料
 
 - [SmartCall RPA SDK 仕様書](https://github.com/milestone-corp/smartcall-rpa-sdk/blob/main/docs/API_SPEC.md)
 
