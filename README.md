@@ -1,6 +1,6 @@
 # SmartCall EPARK Dental
 
-EPARKの歯医者予約システム（haisha-yoyaku.jp）をSmartCallを用いて、予約管理をRPAにて自動化するプロジェクトです。
+EPARKの歯医者予約システムをSmartCallを用いて、予約管理をRPAにて自動化するプロジェクトです。
 
 ## 機能
 
@@ -30,12 +30,15 @@ smartcall-epark-dental/
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
+├── docs/
+│   └── RPA_SPEC.md     # RPA仕様書
 ├── src/
 │   ├── index.ts        # エントリポイント
 │   ├── server.ts       # Expressサーバー
 │   ├── worker.ts       # BullMQ Worker
 │   └── pages/          # Page Objects
-│       └── LoginPage.ts
+│       ├── LoginPage.ts    # ログインページ
+│       └── AppointPage.ts  # アポイント管理台帳ページ
 └── screenshots/        # スクリーンショット保存先
 ```
 

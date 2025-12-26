@@ -36,15 +36,6 @@ app.post(
   })
 );
 
-// REMOVEME: 動作確認用にセルフエコー
-app.post(
-  '/callback',
-  (req, res) => {
-    console.log('[Callback] Received:', JSON.stringify(req.body, null, 2));
-    res.json({ success: true });
-  }
-)
-
 // サーバー起動
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
