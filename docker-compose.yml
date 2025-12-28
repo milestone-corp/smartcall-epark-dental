@@ -1,0 +1,13 @@
+services:
+  epark-dental:
+    build: .
+    container_name: smartcall-epark-dental
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./screenshots:/app/screenshots
+      - ./input:/app/input
+      - ./output:/app/output
+    restart: unless-stopped

@@ -7,7 +7,6 @@
 import {
   BasePage,
   type ReservationRequest as ReservationRequestBase,
-  type ReservationResult as ReservationResultBase,
   type ScreenshotManager,
 } from '@smartcall/rpa-sdk';
 import type { Page } from 'playwright';
@@ -24,11 +23,23 @@ export type ReservationRequest = Omit<ReservationRequestBase, 'operation'> & {
 };
 
 /**
- * 予約結果（SDKの型を拡張してdeleteオペレーションを追加）
+ * 予約結果詳細
  */
-export type ReservationResult = Omit<ReservationResultBase, 'operation'> & {
-  operation: ReservationResultBase['operation'] | 'delete';
-};
+export interface ReservationResultDetail {
+  status: 'success' | 'failed' | 'conflict';
+  external_reservation_id?: string;
+  error_code?: string;
+  error_message?: string;
+}
+
+/**
+ * 予約結果（API仕様準拠 - resultオブジェクト形式）
+ */
+export interface ReservationResult {
+  reservation_id: string;
+  operation: 'create' | 'update' | 'cancel' | 'delete';
+  result: ReservationResultDetail;
+}
 
 /**
  * 空き枠情報
@@ -391,21 +402,25 @@ export class AppointPage extends BasePage {
     lineNo: string = '1',
     lineType: string = '1'
   ): Promise<void> {
+    // 予約枠情報から日付・時刻を取得
+    const slotDate = reservation.slot?.date || '';
+    const slotStartAt = reservation.slot?.start_at || '';
+    const durationMin = reservation.slot?.duration_min || 30;
+
     // 予約日のスケジュールを表示
-    await this.drawSchedule(this.toYyyymmdd(reservation.date));
+    await this.drawSchedule(this.toYyyymmdd(slotDate));
 
     // 時刻をパース（HH:MM形式）
-    const [hourFrom, minuteFrom] = reservation.time.split(':');
+    const [hourFrom, minuteFrom] = slotStartAt.split(':');
 
     // 所要時間から終了時刻を計算
-    const durationMin = reservation.duration_min || 30;
-    const startTime = dayjs(`${reservation.date} ${reservation.time}`, 'YYYY-MM-DD HH:mm');
+    const startTime = dayjs(`${slotDate} ${slotStartAt}`, 'YYYY-MM-DD HH:mm');
     const endTime = startTime.add(durationMin, 'minute');
     const hourTo = endTime.format('HH');
     const minuteTo = endTime.format('mm');
 
     // dateTime形式: YYYYMMDDHHMM
-    const dateTime = `${this.toYyyymmdd(reservation.date)}${hourFrom}${minuteFrom}`;
+    const dateTime = `${this.toYyyymmdd(slotDate)}${hourFrom}${minuteFrom}`;
 
     // popup_registFromTable3UI を呼び出し
     await this.page.evaluate(
@@ -525,9 +540,11 @@ export class AppointPage extends BasePage {
         return {
           reservation_id: reservation.reservation_id,
           operation: 'create',
-          status,
-          error_code: submitResult.errorCode,
-          error_message: submitResult.errorMessage,
+          result: {
+            status,
+            error_code: submitResult.errorCode,
+            error_message: submitResult.errorMessage,
+          },
         };
       }
 
@@ -537,8 +554,10 @@ export class AppointPage extends BasePage {
       return {
         reservation_id: reservation.reservation_id,
         operation: 'create',
-        status: 'success',
-        external_reservation_id: externalReservationId,
+        result: {
+          status: 'success',
+          external_reservation_id: externalReservationId,
+        },
       };
     } catch (error) {
       await this.screenshot.captureError(this.page, `${idx}-reservation-error`);
@@ -550,9 +569,11 @@ export class AppointPage extends BasePage {
       return {
         reservation_id: reservation.reservation_id,
         operation: 'create',
-        status: 'failed',
-        error_code: 'SYSTEM_ERROR',
-        error_message: error instanceof Error ? error.message : '予約作成に失敗しました',
+        result: {
+          status: 'failed',
+          error_code: 'SYSTEM_ERROR',
+          error_message: error instanceof Error ? error.message : '予約作成に失敗しました',
+        },
       };
     }
   }
@@ -577,14 +598,16 @@ export class AppointPage extends BasePage {
     // 詳細情報フォームを開く（備考フィールドがあるため）
     await this.openDetailForm();
 
-    // メニューを選択（menu_nameが指定されている場合）
-    if (reservation.menu_name) {
-      await this.selectMenu(reservation.menu_name);
+    // メニューを選択（menu.menu_nameが指定されている場合）
+    const menuName = reservation.menu?.menu_name;
+    if (menuName) {
+      await this.selectMenu(menuName);
     }
 
     // 顧客名を姓と名に分割（スペースで分割、なければ全て姓として扱う）
-    if (reservation.customer_name) {
-      const nameParts = reservation.customer_name.split(/\s+/);
+    const customerName = reservation.customer?.name;
+    if (customerName) {
+      const nameParts = customerName.split(/\s+/);
       const lastName = nameParts[0] || '';
       const firstName = nameParts.slice(1).join(' ') || '';
 
@@ -600,13 +623,23 @@ export class AppointPage extends BasePage {
     }
 
     // 電話番号を入力
-    if (reservation.customer_phone) {
-      await this.fill('#txtAppointTelNo', reservation.customer_phone);
+    const customerPhone = reservation.customer?.phone;
+    if (customerPhone) {
+      await this.fill('#txtAppointTelNo', customerPhone);
     }
 
-    // 備考を入力（詳細フォームにのみ存在）
-    if (reservation.notes) {
-      await this.fill('#txtAppointMemo', reservation.notes);
+    // 患者メモを入力（詳細フォームにのみ存在）
+    // menu_nameとcustomer.notesを組み合わせて入力
+    const notes = reservation.customer?.notes;
+    const memoLines: string[] = [];
+    if (menuName) {
+      memoLines.push(menuName);
+    }
+    if (notes) {
+      memoLines.push(notes);
+    }
+    if (memoLines.length > 0) {
+      await this.fill('#txtAppointMemo', memoLines.join('\n'));
     }
   }
 
@@ -705,17 +738,20 @@ export class AppointPage extends BasePage {
    * @returns 予約システム側の予約ID
    */
   private async findReservationId(reservation: ReservationRequest, staffId?: string): Promise<string> {
-    // 予約情報からdata属性の値を計算
-    const date = this.toYyyymmdd(reservation.date);
-    const start = reservation.time.replace(':', '');
-    const durationMin = reservation.duration_min ?? 30;
-    const endTime = dayjs(`${reservation.date} ${reservation.time}`, 'YYYY-MM-DD HH:mm')
+    // 予約枠情報からdata属性の値を計算
+    const slotDate = reservation.slot?.date || '';
+    const slotStartAt = reservation.slot?.start_at || '';
+    const durationMin = reservation.slot?.duration_min ?? 30;
+
+    const date = this.toYyyymmdd(slotDate);
+    const start = slotStartAt.replace(':', '');
+    const endTime = dayjs(`${slotDate} ${slotStartAt}`, 'YYYY-MM-DD HH:mm')
       .add(durationMin, 'minute');
     const end = endTime.format('HHmm');
 
     // 属性セレクタで該当する予約要素を検索
     let selector = `.parts_schedule_body_reserve[data-date="${date}"][data-start="${start}"]`;
-    if (reservation.duration_min && !reservation.menu_name) selector += `[data-end="${end}"]`
+    if (reservation.slot?.duration_min && !reservation.menu?.menu_name) selector += `[data-end="${end}"]`
     if (staffId) selector += `[data-staff="${staffId}"]`;
     const reservationId = await this.getAttribute(selector, 'data-id');
 
@@ -739,17 +775,21 @@ export class AppointPage extends BasePage {
     date: string;
     start: string;
   } | null> {
+    // 予約枠情報から日付・時刻を取得
+    const slotDate = reservation.slot?.date || '';
+    const slotStartAt = reservation.slot?.start_at || '';
+
     // 予約日のスケジュールを表示
-    const date = this.toYyyymmdd(reservation.date);
+    const date = this.toYyyymmdd(slotDate);
     await this.drawSchedule(date);
 
-    const start = reservation.time.replace(':', '');
+    const start = slotStartAt.replace(':', '');
 
     // 顧客名からラベルに含まれるテキストを作成（姓名の間のスペースを除去して部分一致）
-    const customerName = reservation.customer_name.replace(/\s+/g, '');
+    const customerName = (reservation.customer?.name || '').replace(/\s+/g, '');
 
     // 電話番号からハイフンを除去（例: 090-1234-5678 → 09012345678）
-    const customerPhone = reservation.customer_phone.replace(/[-\s]/g, '');
+    const customerPhone = (reservation.customer?.phone || '').replace(/[-\s]/g, '');
 
     // 該当日時の予約要素を取得
     const reservations = await this.page.$$(
@@ -850,9 +890,11 @@ export class AppointPage extends BasePage {
         return {
           reservation_id: reservation.reservation_id,
           operation: 'cancel',
-          status: 'failed',
-          error_code: 'RESERVATION_NOT_FOUND',
-          error_message: '指定された予約が見つかりません',
+          result: {
+            status: 'failed',
+            error_code: 'RESERVATION_NOT_FOUND',
+            error_message: '指定された予約が見つかりません',
+          },
         };
       }
 
@@ -874,17 +916,21 @@ export class AppointPage extends BasePage {
         return {
           reservation_id: reservation.reservation_id,
           operation: 'cancel',
-          status: 'failed',
-          error_code: cancelResult.errorCode || 'SYSTEM_ERROR',
-          error_message: cancelResult.errorMessage,
+          result: {
+            status: 'failed',
+            error_code: cancelResult.errorCode || 'SYSTEM_ERROR',
+            error_message: cancelResult.errorMessage,
+          },
         };
       }
 
       return {
         reservation_id: reservation.reservation_id,
         operation: 'cancel',
-        status: 'success',
-        external_reservation_id: existingReservation.appointId,
+        result: {
+          status: 'success',
+          external_reservation_id: existingReservation.appointId,
+        },
       };
     } catch (error) {
       await this.screenshot.captureError(this.page, `${idx}-cancel`);
@@ -896,9 +942,11 @@ export class AppointPage extends BasePage {
       return {
         reservation_id: reservation.reservation_id,
         operation: 'cancel',
-        status: 'failed',
-        error_code: 'SYSTEM_ERROR',
-        error_message: error instanceof Error ? error.message : '予約キャンセルに失敗しました',
+        result: {
+          status: 'failed',
+          error_code: 'SYSTEM_ERROR',
+          error_message: error instanceof Error ? error.message : '予約キャンセルに失敗しました',
+        },
       };
     }
   }
@@ -988,9 +1036,11 @@ export class AppointPage extends BasePage {
         return {
           reservation_id: reservation.reservation_id,
           operation: 'delete',
-          status: 'failed',
-          error_code: 'RESERVATION_NOT_FOUND',
-          error_message: '指定された予約が見つかりません',
+          result: {
+            status: 'failed',
+            error_code: 'RESERVATION_NOT_FOUND',
+            error_message: '指定された予約が見つかりません',
+          },
         };
       }
 
@@ -1012,17 +1062,21 @@ export class AppointPage extends BasePage {
         return {
           reservation_id: reservation.reservation_id,
           operation: 'delete',
-          status: 'failed',
-          error_code: deleteResult.errorCode || 'SYSTEM_ERROR',
-          error_message: deleteResult.errorMessage,
+          result: {
+            status: 'failed',
+            error_code: deleteResult.errorCode || 'SYSTEM_ERROR',
+            error_message: deleteResult.errorMessage,
+          },
         };
       }
 
       return {
         reservation_id: reservation.reservation_id,
         operation: 'delete',
-        status: 'success',
-        external_reservation_id: existingReservation.appointId,
+        result: {
+          status: 'success',
+          external_reservation_id: existingReservation.appointId,
+        },
       };
     } catch (error) {
       await this.screenshot.captureError(this.page, `${idx}-delete`);
@@ -1034,9 +1088,11 @@ export class AppointPage extends BasePage {
       return {
         reservation_id: reservation.reservation_id,
         operation: 'delete',
-        status: 'failed',
-        error_code: 'SYSTEM_ERROR',
-        error_message: error instanceof Error ? error.message : '予約削除に失敗しました',
+        result: {
+          status: 'failed',
+          error_code: 'SYSTEM_ERROR',
+          error_message: error instanceof Error ? error.message : '予約削除に失敗しました',
+        },
       };
     }
   }

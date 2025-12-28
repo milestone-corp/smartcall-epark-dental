@@ -8,6 +8,7 @@
     "dev": "SMARTCALL_MODE=stub node --env-file=.env --loader ts-node/esm --watch src/index.ts",
     "build": "tsc",
     "lint": "eslint src/",
+    "import": "node --env-file=.env --loader ts-node/esm src/import-reservations.ts",
     "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build"
   },
   "dependencies": {

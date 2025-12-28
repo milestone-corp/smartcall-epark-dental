@@ -10,6 +10,12 @@ dist/
 # Screenshots
 screenshots/
 
+# Output
+output/
+
+# Input
+input/
+
 # IDE
 .vscode/
 .idea/

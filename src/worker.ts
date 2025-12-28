@@ -71,8 +71,8 @@ createRpaJob<RpaJobData>(
 
       // 5. 空き枠を取得
       const today = dayjs().tz('Asia/Tokyo');
-      const dateFrom = data.date_from || today.format('YYYY-MM-DD');
-      const dateTo = data.date_to || today.add(7, 'day').format('YYYY-MM-DD'); // デフォルト: 7日後
+      const dateFrom = data.reservation_sync?.date_from || today.format('YYYY-MM-DD');
+      const dateTo = data.reservation_sync?.date_to || today.add(7, 'day').format('YYYY-MM-DD'); // デフォルト: 7日後
 
       logger.info({ dateFrom, dateTo }, 'Fetching available slots');
 
@@ -82,7 +82,11 @@ createRpaJob<RpaJobData>(
 
       // 6. 予約操作を処理
       const reservations = (data.reservations || []) as ReservationRequest[];
-      let reservationResults: { reservation_id: string; operation: string; status: string }[] = [];
+      let reservationResults: Array<{
+        reservation_id: string;
+        operation: string;
+        result: { status: string; external_reservation_id?: string; error_code?: string; error_message?: string };
+      }> = [];
 
       if (reservations.length > 0) {
         logger.info({ reservationCount: reservations.length }, 'Processing reservations');
@@ -92,7 +96,7 @@ createRpaJob<RpaJobData>(
 
       // 7. コールバックで結果を送信
       // 予約結果からステータスを判定
-      const successCount = reservationResults.filter((r) => r.status === 'success').length;
+      const successCount = reservationResults.filter((r) => r.result.status === 'success').length;
       const totalCount = reservationResults.length;
 
       let jobStatus: 'success' | 'partial_success' | 'failed';
