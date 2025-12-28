@@ -9,6 +9,8 @@
     "build": "tsc",
     "lint": "eslint src/",
     "import": "node --env-file=.env --loader ts-node/esm src/import-reservations.ts",
+    "benchmark": "node --env-file=.env --loader ts-node/esm src/benchmark-slots.ts",
+    "start:persistent": "node --env-file=.env --loader ts-node/esm src/persistent-server.ts",
     "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build"
   },
   "dependencies": {

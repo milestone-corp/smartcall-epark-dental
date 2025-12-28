@@ -60,6 +60,24 @@ export interface SlotInfo {
 /** 取得日数の選択肢 */
 type FetchDays = 1 | 3 | 8;
 
+/**
+ * 予約検索結果
+ */
+export interface ReservationSearchResult {
+  /** 予約ID */
+  appointId: string;
+  /** 日付（YYYY-MM-DD形式） */
+  date: string;
+  /** 時刻（HH:MM形式） */
+  time: string;
+  /** 顧客名 */
+  customerName: string;
+  /** 電話番号 */
+  customerPhone: string;
+  /** スタッフID */
+  staffId: string;
+}
+
 export class AppointPage extends BasePage {
   /** 1回のスケジュール描画で取得できる日数 */
   private readonly FETCH_DAYS: FetchDays = 8;
@@ -756,6 +774,85 @@ export class AppointPage extends BasePage {
     const reservationId = await this.getAttribute(selector, 'data-id');
 
     return reservationId || '';
+  }
+
+  /**
+   * 電話番号で予約を検索する（公開メソッド）
+   *
+   * 指定された日付範囲内で、電話番号に一致する予約を検索する
+   *
+   * @param dateFrom 開始日 (YYYY-MM-DD)
+   * @param dateTo 終了日 (YYYY-MM-DD)
+   * @param customerPhone 電話番号
+   * @returns 予約リスト
+   */
+  async searchReservationsByPhone(
+    dateFrom: string,
+    dateTo: string,
+    customerPhone: string
+  ): Promise<ReservationSearchResult[]> {
+    const results: ReservationSearchResult[] = [];
+
+    // 電話番号からハイフン・スペースを除去して正規化
+    const normalizedPhone = customerPhone.replace(/[-\s+]/g, '');
+
+    // 開始日と終了日をdayjsオブジェクトに変換
+    let currentDate = dayjs(dateFrom);
+    const endDate = dayjs(dateTo);
+
+    // 日付ごとにスケジュールを描画して検索
+    while (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day')) {
+      const dateStr = currentDate.format('YYYYMMDD');
+      const isoDate = currentDate.format('YYYY-MM-DD');
+
+      // スケジュールを描画
+      await this.drawSchedule(dateStr);
+
+      // 全ての予約要素を取得
+      const reservations = await this.page.$$(
+        `.parts_schedule_body_reserve[data-date="${dateStr}"]`
+      );
+
+      for (const element of reservations) {
+        // ラベルテキストを取得（例: "院内予約 / テスト太郎 / 09012345678"）
+        const labelElement = await element.$('.parts_schedule_body_reserve_label');
+        const labelText = await labelElement?.textContent() || '';
+
+        // スペース・スラッシュ・ハイフンを除去して比較用テキストを作成
+        const normalizedLabel = labelText.replace(/[\s/\-]/g, '');
+
+        // 電話番号が含まれているか確認
+        if (normalizedLabel.includes(normalizedPhone)) {
+          // data属性を取得
+          const appointId = await element.getAttribute('data-id') || '';
+          const staffId = await element.getAttribute('data-staff') || '';
+          const start = await element.getAttribute('data-start') || '';
+
+          // 時刻をHH:MM形式に変換
+          const time = start.length === 4
+            ? `${start.slice(0, 2)}:${start.slice(2, 4)}`
+            : start;
+
+          // ラベルから顧客名を抽出（"予約種別 / 顧客名 / 電話番号" の形式を想定）
+          const labelParts = labelText.split('/').map(p => p.trim());
+          const customerName = labelParts.length >= 2 ? labelParts[1] : '';
+
+          results.push({
+            appointId,
+            date: isoDate,
+            time,
+            customerName,
+            customerPhone: normalizedPhone,
+            staffId,
+          });
+        }
+      }
+
+      // 次の日へ
+      currentDate = currentDate.add(1, 'day');
+    }
+
+    return results;
   }
 
   /**
