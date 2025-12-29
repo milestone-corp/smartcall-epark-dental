@@ -333,6 +333,32 @@ export class AppointPage extends BasePage {
 
       if (!dateAttr || !startAttr || !endAttr || !staffId) continue;
 
+      // グレーアウトされたセル（シフト外）をスキップ
+      // EPARK Dentalでは、グレーセルはbackground-colorがグレー系の色になっている
+      // または 'disable' / 'disabled' / 'inactive' などのクラスを持つ
+      const classList = await column.getAttribute('class') || '';
+      const isDisabledByClass = classList.includes('disable') ||
+                                 classList.includes('inactive') ||
+                                 classList.includes('closed') ||
+                                 classList.includes('off');
+      if (isDisabledByClass) continue;
+
+      // 背景色でグレーアウト判定（rgbのグレー系の色をチェック）
+      const bgColor = await column.evaluate((el) => {
+        const style = window.getComputedStyle(el);
+        return style.backgroundColor;
+      });
+      // グレー系の色（rgb値がすべて近い値で、明るすぎない色）
+      // 例: rgb(200, 200, 200), rgb(220, 220, 220), rgb(128, 128, 128) など
+      const grayMatch = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (grayMatch) {
+        const [, r, g, b] = grayMatch.map(Number);
+        // R, G, Bの値がほぼ同じ（±10）で、128〜230の範囲内ならグレーと判定
+        const isGray = Math.abs(r - g) <= 10 && Math.abs(g - b) <= 10 && Math.abs(r - b) <= 10;
+        const isGrayRange = r >= 128 && r <= 230 && g >= 128 && g <= 230 && b >= 128 && b <= 230;
+        if (isGray && isGrayRange) continue;
+      }
+
       // 予約済みの枠はスキップ
       if (isSlotReserved(dateAttr, startAttr, endAttr, staffId)) continue;
 
