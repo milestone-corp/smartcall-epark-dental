@@ -11,4 +11,4 @@ services:
       - ./input:/app/input
       - ./output:/app/output
     restart: unless-stopped
-    command: ["npm", "run", "start:persistent"]
+    command: ["npm", "run", "start"]

@@ -153,12 +153,18 @@ async function ensureSessionManager(
         `[Server] Credentials changed, reinitializing session...`
       );
 
-      // 既存セッションをクローズ
+      // 既存セッションをクローズ（ゾンビプロセス防止）
       if (sessionManager) {
+        const oldSession = sessionManager;
+        sessionManager = null; // 先に参照をクリア
+        // EventEmitterリスナーを削除（メモリリーク防止）
+        oldSession.removeAllListeners();
         try {
-          await sessionManager.close();
+          await oldSession.close();
         } catch (error) {
-          console.error('[Server] Error closing old session:', error);
+          console.error('[Server] Error closing old session, forcing cleanup...', error);
+          // close()が失敗した場合、forceClose()でリソースをクリーンアップ
+          await oldSession.forceClose();
         }
       }
 
