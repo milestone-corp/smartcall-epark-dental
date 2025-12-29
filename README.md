@@ -205,7 +205,7 @@ smartcall-epark-dental/
 │   ├── status.sh            # ステータス確認
 │   └── logs.sh              # ログ表示
 ├── src/
-│   ├── persistent-server.ts # 常駐サーバー
+│   ├── server.ts            # 常駐サーバー
 │   ├── lib/
 │   │   └── BrowserSessionManager.ts  # セッション管理
 │   └── pages/

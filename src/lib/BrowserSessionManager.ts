@@ -6,6 +6,7 @@
 
 import { EventEmitter } from 'events';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { Mutex } from 'async-mutex';
 import { LoginPage } from '../pages/LoginPage.js';
 
 /** 認証情報型 */
@@ -47,6 +48,7 @@ export class BrowserSessionManager extends EventEmitter {
   private config: Required<SessionConfig>;
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   private lastActivityTime: Date = new Date();
+  private mutex = new Mutex();
 
   constructor(config: SessionConfig) {
     super();
@@ -127,11 +129,18 @@ export class BrowserSessionManager extends EventEmitter {
 
   /**
    * セッションをリフレッシュ（ページリロード）
+   * Mutexを取得してから実行し、リクエスト処理との競合を防ぐ
    */
   private async refreshSession(): Promise<void> {
+    // busy状態やrecovering状態の場合はスキップ
     if (this.state !== 'ready' || !this.page) return;
 
+    // Mutexを取得してからリフレッシュ（リクエスト処理との競合防止）
+    const release = await this.mutex.acquire();
     try {
+      // 再度状態チェック（Mutex取得中に変わった可能性）
+      if (this.state !== 'ready' || !this.page) return;
+
       const { baseUrl, keepAlivePath } = this.config;
 
       console.log('[BrowserSessionManager] Keep-alive: refreshing session...');
@@ -146,7 +155,7 @@ export class BrowserSessionManager extends EventEmitter {
       if (!isLoggedIn) {
         console.warn('[BrowserSessionManager] Session expired, recovering...');
         this.emit('sessionExpired');
-        await this.recover();
+        await this.recoverInternal();
       } else {
         console.log('[BrowserSessionManager] Keep-alive: session is valid');
       }
@@ -154,14 +163,30 @@ export class BrowserSessionManager extends EventEmitter {
       this.lastActivityTime = new Date();
     } catch (error) {
       console.error('[BrowserSessionManager] Keep-alive failed:', error);
-      await this.recover();
+      await this.recoverInternal();
+    } finally {
+      release();
     }
   }
 
   /**
-   * セッションをリカバリー（再ログイン）
+   * セッションをリカバリー（再ログイン）- 外部呼び出し用
+   * Mutexを取得してからリカバリーを実行
    */
   async recover(): Promise<void> {
+    const release = await this.mutex.acquire();
+    try {
+      await this.recoverInternal();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * セッションをリカバリー（再ログイン）- 内部用
+   * Mutex取得済みの状態で呼び出すこと
+   */
+  private async recoverInternal(): Promise<void> {
     if (this.state === 'recovering') return;
 
     this.setState('recovering');
@@ -238,6 +263,63 @@ export class BrowserSessionManager extends EventEmitter {
       this.lastActivityTime = new Date();
       this.setState('ready');
     }
+  }
+
+  /**
+   * Mutex付きでページを使用する
+   *
+   * 同時に1つのリクエストのみがページを操作できる
+   * 他のリクエストはMutexが解放されるまで待機する
+   *
+   * @param fn ページを使用する処理
+   * @param timeoutMs タイムアウト時間（デフォルト: 10分）
+   */
+  async withPage<T>(
+    fn: (page: Page) => Promise<T>,
+    timeoutMs: number = 600000
+  ): Promise<T> {
+    const release = await this.mutex.acquire();
+    try {
+      const page = await this.acquirePage();
+      try {
+        // タイムアウト付きで実行
+        const result = await Promise.race([
+          fn(page),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Page operation timed out after ${timeoutMs}ms`)),
+              timeoutMs
+            )
+          ),
+        ]);
+        return result;
+      } catch (error) {
+        // ブラウザ関連のエラーならリカバリー試行
+        if (this.isBrowserError(error)) {
+          console.warn('[BrowserSessionManager] Browser error detected, recovering...');
+          await this.recoverInternal();
+        }
+        throw error;
+      } finally {
+        this.releasePage();
+      }
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * ブラウザ関連のエラーかどうかを判定
+   */
+  private isBrowserError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('Target closed') ||
+      message.includes('Browser closed') ||
+      message.includes('Protocol error') ||
+      message.includes('Session closed') ||
+      message.includes('Connection closed')
+    );
   }
 
   /**

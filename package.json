@@ -10,11 +10,13 @@
     "lint": "eslint src/",
     "import": "node --env-file=.env --loader ts-node/esm src/import-reservations.ts",
     "benchmark": "node --env-file=.env --loader ts-node/esm src/benchmark-slots.ts",
-    "start:persistent": "node --env-file=.env --loader ts-node/esm src/persistent-server.ts",
-    "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build"
+    "start:persistent": "node --env-file=.env --loader ts-node/esm src/server.ts",
+    "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build",
+    "test:concurrent": "node test/concurrent-access-test.cjs"
   },
   "dependencies": {
     "@smartcall/rpa-sdk": "github:milestone-corp/smartcall-rpa-sdk",
+    "async-mutex": "^0.5.0",
     "dayjs": "^1.11.19",
     "express": "^5.2.1"
   },

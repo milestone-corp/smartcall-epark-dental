@@ -1,0 +1,19 @@
+services:
+  epark-dental:
+    build: .
+    container_name: smartcall-epark-dental
+    env_file:
+      - .env
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./screenshots:/app/screenshots
+      - ./input:/app/input
+      - ./output:/app/output
+    restart: unless-stopped
+    command: ["npm", "run", "start:persistent"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
