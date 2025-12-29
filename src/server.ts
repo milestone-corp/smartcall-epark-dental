@@ -40,9 +40,9 @@ const KEEP_ALIVE_INTERVAL_MS = parseInt(
   10
 ); // 5分
 const REQUEST_TIMEOUT_MS = parseInt(
-  process.env.REQUEST_TIMEOUT_MS || '600000',
+  process.env.REQUEST_TIMEOUT_MS || '60000',
   10
-); // 10分
+); // 60秒（電話中のリアルタイム処理のため短縮）
 
 // セッションマネージャー（後から認証情報を設定するため、nullableに）
 let sessionManager: BrowserSessionManager | null = null;
@@ -306,7 +306,7 @@ app.get('/slots', async (req: Request, res: Response) => {
       }
 
       return { slots, screenshotBase64 };
-    });
+    }, REQUEST_TIMEOUT_MS);
 
     const response: Record<string, unknown> = {
       success: true,
@@ -413,7 +413,7 @@ app.get('/reservations/search', async (req: Request, res: Response) => {
       }
 
       return { reservations, screenshotBase64 };
-    });
+    }, REQUEST_TIMEOUT_MS);
 
     const response: Record<string, unknown> = {
       success: true,
@@ -521,7 +521,7 @@ app.post('/reservations', async (req: Request, res: Response) => {
       }
 
       return { processResult, screenshotBase64 };
-    });
+    }, REQUEST_TIMEOUT_MS);
 
     const response: Record<string, unknown> = {
       success: result.processResult.result.status === 'success',
@@ -621,7 +621,7 @@ app.delete('/reservations', async (req: Request, res: Response) => {
       }
 
       return { processResult, screenshotBase64 };
-    });
+    }, REQUEST_TIMEOUT_MS);
 
     const response: Record<string, unknown> = {
       success: result.processResult.result.status === 'success',
@@ -681,7 +681,7 @@ app.post('/session/restart', async (req: Request, res: Response) => {
         screenshotBase64 = await sessionManager.withPage(async (page) => {
           const buffer = await page.screenshot({ type: 'png' });
           return buffer.toString('base64');
-        });
+        }, REQUEST_TIMEOUT_MS);
       } catch (screenshotError) {
         console.error('[Server] Screenshot failed:', screenshotError);
       }
