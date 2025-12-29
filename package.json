@@ -4,19 +4,16 @@
   "description": "EPARK歯科予約システムのRPA自動化",
   "type": "module",
   "scripts": {
-    "start": "node --loader ts-node/esm src/index.ts",
-    "dev": "SMARTCALL_MODE=stub node --env-file=.env --loader ts-node/esm --watch src/index.ts",
+    "dev": "node --env-file=.env --loader ts-node/esm --watch src/server.ts",
     "build": "tsc",
     "lint": "eslint src/",
+    "start": "node --env-file=.env --loader ts-node/esm src/server.ts",
     "import": "node --env-file=.env --loader ts-node/esm src/import-reservations.ts",
-    "benchmark": "node --env-file=.env --loader ts-node/esm src/benchmark-slots.ts",
-    "start:persistent": "node --env-file=.env --loader ts-node/esm src/server.ts",
     "postinstall": "cd node_modules/@smartcall/rpa-sdk && npm install && npm run build",
     "test:concurrent": "node test/concurrent-access-test.cjs"
   },
   "dependencies": {
     "@smartcall/rpa-sdk": "github:milestone-corp/smartcall-rpa-sdk",
-    "async-mutex": "^0.5.0",
     "dayjs": "^1.11.19",
     "express": "^5.2.1"
   },
