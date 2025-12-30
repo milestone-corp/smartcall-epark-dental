@@ -676,17 +676,10 @@ export class AppointPage extends BasePage {
     }
 
     // 患者メモを入力（詳細フォームにのみ存在）
-    // menu_nameとcustomer.notesを組み合わせて入力
-    const notes = reservation.customer?.notes;
-    const memoLines: string[] = [];
+    // menu_nameがある場合は「SmartCall: {menu_name}」形式で入力
     if (menuName) {
-      memoLines.push(menuName);
-    }
-    if (notes) {
-      memoLines.push(notes);
-    }
-    if (memoLines.length > 0) {
-      await this.fill('#txtAppointMemo', memoLines.join('\n'));
+      const memoContent = `SmartCall: ${menuName}`;
+      await this.fill('#txtAppointMemo', memoContent);
     }
   }
 
@@ -1093,19 +1086,13 @@ export class AppointPage extends BasePage {
    * @param reservation 予約リクエスト
    */
   private async fillUpdateForm(reservation: ReservationRequest): Promise<void> {
-    // メニュー名を患者メモに入力
+    // メニュー名を患者メモに入力（SmartCall: プレフィックス付き）
     const menuName = reservation.menu?.menu_name;
-    const notes = reservation.customer?.notes;
 
-    const memoLines: string[] = [];
+    // menu_nameが指定されている場合のみ更新
+    // ※WEBメニューは一度登録すると変更不可のため、患者メモのみ更新
     if (menuName) {
-      memoLines.push(menuName);
-    }
-    if (notes) {
-      memoLines.push(notes);
-    }
-
-    if (memoLines.length > 0) {
+      const memoContent = `SmartCall: ${menuName}`;
       // 編集ダイアログが開いていることを確認
       await this.waitForSelector('.appointment_detail_info.open');
 
@@ -1127,7 +1114,7 @@ export class AppointPage extends BasePage {
       // 患者メモフィールドが表示されるまで待機
       await this.waitForSelector('#txtAppointMemo', { state: 'visible' });
       // 既存のメモをクリアして新しい内容を入力
-      await this.fill('#txtAppointMemo', memoLines.join('\n'));
+      await this.fill('#txtAppointMemo', memoContent);
     }
   }
 
