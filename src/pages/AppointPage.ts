@@ -19,7 +19,7 @@ dayjs.extend(customParseFormat);
  * 予約リクエスト（SDKの型を拡張してdeleteオペレーションを追加）
  */
 export type ReservationRequest = Omit<ReservationRequestBase, 'operation'> & {
-  operation: ReservationRequestBase['operation'] | 'delete';
+  operation: ReservationRequestBase['operation'] | 'delete' | 'update';
 };
 
 /**
@@ -536,6 +536,9 @@ export class AppointPage extends BasePage {
       } else if (reservation.operation === 'delete') {
         const result = await this.deleteReservation(reservation, i + 1);
         results.push(result);
+      } else if (reservation.operation === 'update') {
+        const result = await this.updateReservation(reservation, i + 1);
+        results.push(result);
       }
     }
 
@@ -990,6 +993,164 @@ export class AppointPage extends BasePage {
 
     // ポップアップが表示されるまで待機
     await this.waitForSelector('.appointment_detail_info.open');
+  }
+
+  /**
+   * 予約を更新する
+   *
+   * 既存の予約を検索し、編集フォームを開いてメモ（メニュー名）を更新する
+   *
+   * @param reservation 予約リクエスト
+   * @param index 予約のインデックス（スクリーンショット用）
+   * @returns 予約操作結果
+   */
+  private async updateReservation(
+    reservation: ReservationRequest,
+    index: number
+  ): Promise<ReservationResult> {
+    const idx = String(index).padStart(2, '0');
+
+    try {
+      // 既存の予約を検索
+      const existingReservation = await this.findExistingReservation(reservation);
+
+      if (!existingReservation) {
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'update',
+          result: {
+            status: 'failed',
+            error_code: 'RESERVATION_NOT_FOUND',
+            error_message: '指定された予約が見つかりません',
+          },
+        };
+      }
+
+      // 予約編集フォームを開く
+      await this.openEditForm(existingReservation);
+      await this.screenshot.captureStep(this.page, `05-${idx}-update-form`);
+
+      // フォームに入力（メニュー名をメモに反映）
+      await this.fillUpdateForm(reservation);
+      await this.screenshot.captureStep(this.page, `06-${idx}-update-filled`);
+
+      // 更新ボタンをクリック
+      const submitResult = await this.submitUpdateForm();
+      await this.screenshot.captureStep(this.page, `07-${idx}-update-submitted`);
+
+      if (!submitResult.success) {
+        await this.screenshot.captureError(this.page, `${idx}-update-result`);
+
+        // 失敗時はブラウザをリロードして状態をリセット
+        await this.page.reload();
+        await this.waitForSelector(this.selectors.dateHeader);
+
+        return {
+          reservation_id: reservation.reservation_id,
+          operation: 'update',
+          result: {
+            status: 'failed',
+            error_code: submitResult.errorCode || 'SYSTEM_ERROR',
+            error_message: submitResult.errorMessage,
+          },
+        };
+      }
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'update',
+        result: {
+          status: 'success',
+          external_reservation_id: existingReservation.appointId,
+        },
+      };
+    } catch (error) {
+      await this.screenshot.captureError(this.page, `${idx}-update-error`);
+
+      // 失敗時はブラウザをリロードして状態をリセット
+      await this.page.reload();
+      await this.waitForSelector(this.selectors.dateHeader);
+
+      return {
+        reservation_id: reservation.reservation_id,
+        operation: 'update',
+        result: {
+          status: 'failed',
+          error_code: 'SYSTEM_ERROR',
+          error_message: error instanceof Error ? error.message : '予約更新に失敗しました',
+        },
+      };
+    }
+  }
+
+  /**
+   * 予約更新フォームに入力する
+   *
+   * メニュー名を患者メモに反映する
+   *
+   * @param reservation 予約リクエスト
+   */
+  private async fillUpdateForm(reservation: ReservationRequest): Promise<void> {
+    // メニュー名を患者メモに入力
+    const menuName = reservation.menu?.menu_name;
+    const notes = reservation.customer?.notes;
+
+    const memoLines: string[] = [];
+    if (menuName) {
+      memoLines.push(menuName);
+    }
+    if (notes) {
+      memoLines.push(notes);
+    }
+
+    if (memoLines.length > 0) {
+      // 既存のメモをクリアして新しい内容を入力
+      await this.fill('#txtAppointMemo', memoLines.join('\n'));
+    }
+  }
+
+  /**
+   * 予約更新フォームを送信する
+   *
+   * @returns 送信結果
+   */
+  private async submitUpdateForm(): Promise<{
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  }> {
+    // APIレスポンスを待機しながら更新ボタンをクリック
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.url().includes('/timeAppoint4M/scheduleregister/editappoint') &&
+        response.request().method() === 'POST'
+    );
+
+    // 更新ボタンをクリック（詳細フォームの登録ボタン）
+    await this.click('.guest_foot_entry');
+
+    // APIレスポンスを取得して結果を確認
+    const response = await responsePromise;
+    const json = await response.json() as {
+      result: boolean;
+      err_messages?: string[];
+      alert_message?: string;
+    };
+
+    if (!json.result) {
+      const errorMessage = json.err_messages?.join(', ') || json.alert_message || '予約更新に失敗しました';
+
+      return {
+        success: false,
+        errorCode: 'SYSTEM_ERROR',
+        errorMessage,
+      };
+    }
+
+    // 詳細フォームが閉じるまで待機
+    await this.waitForSelector('.appointment_detail_info.open', { state: 'hidden' });
+
+    return { success: true };
   }
 
   /**

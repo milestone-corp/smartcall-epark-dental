@@ -13,7 +13,7 @@
     "test:concurrent": "node test/concurrent-access-test.cjs"
   },
   "dependencies": {
-    "@smartcall/rpa-sdk": "github:milestone-corp/smartcall-rpa-sdk",
+    "@smartcall/rpa-sdk": "github:milestone-corp/smartcall-rpa-sdk#main",
     "dayjs": "^1.11.19",
     "express": "^5.2.1"
   },

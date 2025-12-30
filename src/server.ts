@@ -74,7 +74,7 @@ app.use((req: Request, res: Response, next) => {
     'Access-Control-Allow-Headers',
     'Origin, X-Requested-With, Content-Type, Accept, X-RPA-Login-Id, X-RPA-Login-Password, X-RPA-Shop-Id, X-RPA-Test-Mode'
   );
-  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 
   // Preflightリクエストへの対応
   if (req.method === 'OPTIONS') {
@@ -549,6 +549,108 @@ app.post('/reservations', async (req: Request, res: Response) => {
 });
 
 /**
+ * 予約更新エンドポイント
+ * PUT /reservations
+ *
+ * 既存の予約を検索し、メニュー名（患者メモ）を更新する
+ */
+app.put('/reservations', async (req: Request, res: Response) => {
+  const authInfo = getCredentialsFromRequest(req);
+  if (!authInfo) {
+    res.status(401).json({
+      success: false,
+      error: 'Missing authentication headers. Required: X-RPA-Login-Id, X-RPA-Login-Password, X-RPA-Shop-Id',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  const { date, time, customer_name, customer_phone, menu_name } = req.body;
+  const isTestMode = req.headers['x-rpa-test-mode'] === 'true';
+
+  if (!date || !time || !customer_name || !customer_phone) {
+    res.status(400).json({
+      success: false,
+      error: 'Missing required parameters: date, time, customer_name, customer_phone',
+      code: 'INVALID_REQUEST',
+    });
+    return;
+  }
+
+  try {
+    await ensureSessionManager(authInfo.credentials, authInfo.shopId);
+
+    if (!sessionManager) {
+      res.status(503).json({
+        success: false,
+        error: 'Session not initialized',
+        code: 'SESSION_NOT_READY',
+      });
+      return;
+    }
+
+    const startTime = Date.now();
+
+    // Mutex付きでページを使用（同時リクエストを排他制御）
+    const result = await sessionManager.withPage(async (page) => {
+      const screenshot = new ScreenshotManager('./screenshots');
+      const appointPage = new AppointPage(page, screenshot);
+      const baseUrl = `https://control.haisha-yoyaku.jp/${authInfo.shopId}`;
+      await appointPage.navigate(baseUrl);
+
+      // 予約を更新
+      const reservations = [{
+        reservation_id: `update_${Date.now()}`,
+        operation: 'update' as const,
+        slot: { date, start_at: time, end_at: '', duration_min: 0 },
+        customer: { name: customer_name, phone: customer_phone },
+        menu: { menu_id: '', external_menu_id: '', menu_name: menu_name || '' },
+        staff: { staff_id: '', external_staff_id: '', resource_name: '', preference: 'any' as const },
+      }];
+
+      const results = await appointPage.processReservations(reservations);
+      const processResult = results[0];
+
+      // テストモードの場合はスクリーンショットを取得
+      let screenshotBase64: string | undefined;
+      if (isTestMode) {
+        try {
+          const screenshotBuffer = await page.screenshot({ fullPage: false });
+          screenshotBase64 = screenshotBuffer.toString('base64');
+        } catch (screenshotError) {
+          console.error('[Server] Screenshot failed:', screenshotError);
+        }
+      }
+
+      return { processResult, screenshotBase64 };
+    }, REQUEST_TIMEOUT_MS);
+
+    const response: Record<string, unknown> = {
+      success: result.processResult.result.status === 'success',
+      reservation_id: result.processResult.reservation_id,
+      external_reservation_id: result.processResult.result.external_reservation_id,
+      error: result.processResult.result.status !== 'success' ? result.processResult.result.error_message : undefined,
+      error_code: result.processResult.result.error_code,
+      timing: { total_ms: Date.now() - startTime },
+    };
+
+    if (result.screenshotBase64) {
+      response.screenshot = result.screenshotBase64;
+    }
+
+    res.json(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[Server] PUT /reservations error:', error);
+    res.status(500).json({
+      success: false,
+      error: message,
+      code: 'PROCESSING_ERROR',
+    });
+  }
+});
+
+/**
  * 予約キャンセルエンドポイント
  * DELETE /reservations
  */
@@ -716,6 +818,7 @@ async function main() {
     console.log('  - GET  /slots?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD');
     console.log('  - GET  /reservations/search?customer_phone=XXX&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD');
     console.log('  - POST /reservations (create)');
+    console.log('  - PUT  /reservations (update)');
     console.log('  - DELETE /reservations (cancel)');
     console.log('  - POST /session/restart');
     console.log('[Server] Required headers:');
