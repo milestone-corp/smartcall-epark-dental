@@ -7,6 +7,7 @@ EPARKの歯医者予約システムをSmartCallを用いて、予約管理をRPA
 - 空き枠の取得
 - 予約の検索（電話番号で検索）
 - 予約の作成
+- 予約の更新
 - 予約のキャンセル
 
 ## セットアップ
@@ -151,6 +152,31 @@ npm run start:persistent
 }
 ```
 
+### PUT /reservations
+
+予約を更新（メニュー変更など）
+
+**リクエストボディ:**
+```json
+{
+  "date": "2025-12-28",
+  "time": "09:00",
+  "customer_name": "山田太郎",
+  "customer_phone": "09012345678",
+  "menu_name": "虫歯治療"
+}
+```
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "reservation_id": "update_1735380000000",
+  "external_reservation_id": "12345",
+  "timing": { "total_ms": 4567 }
+}
+```
+
 ### DELETE /reservations
 
 予約をキャンセル
@@ -239,5 +265,5 @@ smartcall-epark-dental/
 | 変数名 | 説明 | デフォルト |
 |--------|------|------------|
 | `PORT` | サーバーポート | 3000 |
-| `KEEP_ALIVE_INTERVAL_MS` | キープアライブ間隔（ms） | 300000 (5分) |
+| `KEEP_ALIVE_INTERVAL_MS` | キープアライブ間隔（ms） | 600000 (10分) |
 | `REQUEST_TIMEOUT_MS` | リクエストタイムアウト（ms） | 600000 (10分) |
