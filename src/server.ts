@@ -802,6 +802,139 @@ app.post('/session/restart', async (req: Request, res: Response) => {
 });
 
 /**
+ * デバッグ用エンドポイント - DOM取得とスクリーンショット
+ *
+ * クエリパラメータ:
+ *   - selector: 特定要素の情報を取得（例: #txtAppointMemo）
+ *   - screenshot: trueの場合スクリーンショットを含める
+ */
+app.get('/debug/browser', async (req: Request, res: Response) => {
+  try {
+    if (!sessionManager) {
+      res.status(503).json({ error: 'No active session' });
+      return;
+    }
+
+    const selector = req.query.selector as string | undefined;
+    const includeScreenshot = req.query.screenshot === 'true';
+    const includeHtml = req.query.html === 'true';
+
+    const result = await sessionManager.withPage(async (page) => {
+      const data: Record<string, unknown> = {
+        url: page.url(),
+        title: await page.title(),
+      };
+
+      // 特定セレクタの情報を取得
+      if (selector) {
+        const elementInfo = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return { found: false, selector: sel };
+
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const htmlEl = el as HTMLElement;
+
+          // 親要素のチェーンを確認（どこで非表示になっているか）
+          const parentChain: Array<{ tag: string; id: string; class: string; display: string; visibility: string }> = [];
+          let parent = el.parentElement;
+          let depth = 0;
+          while (parent && depth < 10) {
+            const parentStyle = window.getComputedStyle(parent);
+            parentChain.push({
+              tag: parent.tagName,
+              id: parent.id,
+              class: parent.className.toString().slice(0, 50),
+              display: parentStyle.display,
+              visibility: parentStyle.visibility,
+            });
+            parent = parent.parentElement;
+            depth++;
+          }
+
+          return {
+            found: true,
+            selector: sel,
+            tagName: el.tagName,
+            id: el.id,
+            className: el.className.toString(),
+            value: (el as HTMLInputElement | HTMLTextAreaElement).value ?? null,
+            innerText: htmlEl.innerText?.slice(0, 200),
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            width: rect.width,
+            height: rect.height,
+            top: rect.top,
+            left: rect.left,
+            isVisible: style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+            offsetParent: htmlEl.offsetParent ? (htmlEl.offsetParent as HTMLElement).tagName : null,
+            parentChain,
+          };
+        }, selector);
+        data.element = elementInfo;
+      }
+
+      // HTML取得
+      if (includeHtml) {
+        data.html = await page.content();
+      }
+
+      // スクリーンショット
+      if (includeScreenshot) {
+        const buffer = await page.screenshot({ fullPage: true });
+        data.screenshot = buffer.toString('base64');
+      }
+
+      return data;
+    }, REQUEST_TIMEOUT_MS);
+
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[Server] /debug/browser error:', error);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * デバッグ用エンドポイント - ブラウザでJavaScriptを実行
+ */
+app.post('/debug/evaluate', async (req: Request, res: Response) => {
+  try {
+    if (!sessionManager) {
+      res.status(503).json({ error: 'No active session' });
+      return;
+    }
+
+    const { script } = req.body as { script: string };
+    if (!script) {
+      res.status(400).json({ error: 'script is required' });
+      return;
+    }
+
+    const result = await sessionManager.withPage(async (page) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const evalResult = await page.evaluate((code) => {
+        try {
+          // eslint-disable-next-line no-eval
+          return { success: true, result: eval(code) };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      }, script);
+      return evalResult;
+    }, REQUEST_TIMEOUT_MS);
+
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[Server] /debug/evaluate error:', error);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
  * サーバー起動
  */
 async function main() {

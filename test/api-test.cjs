@@ -274,8 +274,41 @@ async function runTests() {
     failed++;
   }
 
-  // 5. 予約検索
-  console.log('\n--- 5. 予約検索 ---');
+  // 5. 予約更新（メニュー変更）
+  console.log('\n--- 5. 予約更新（メニュー変更） ---');
+  if (createdReservation) {
+    try {
+      const newMenuName = '虫歯治療';
+      const body = {
+        date: createdReservation.date,
+        time: createdReservation.time,
+        customer_name: TEST_CUSTOMER_NAME,
+        customer_phone: TEST_CUSTOMER_PHONE,
+        menu_name: newMenuName,
+      };
+      const res = await request('PUT', '/reservations', body);
+      const success = res.status === 200 && res.data.success;
+      printResult(
+        'PUT /reservations',
+        success,
+        success
+          ? `external_id=${res.data.external_reservation_id}, new_menu=${newMenuName}`
+          : `error=${res.data.error}`
+      );
+      if (res.data.screenshot) {
+        saveScreenshot(res.data.screenshot, getTimestampedFilename('05_update'));
+      }
+      success ? passed++ : failed++;
+    } catch (error) {
+      printResult('PUT /reservations', false, error.message);
+      failed++;
+    }
+  } else {
+    console.log('   ⚠️ 予約が作成されていないためスキップ');
+  }
+
+  // 6. 予約検索
+  console.log('\n--- 6. 予約検索 ---');
   try {
     const res = await request(
       'GET',
@@ -288,7 +321,7 @@ async function runTests() {
       `count=${res.data.count}, timing=${res.data.timing?.total_ms}ms`
     );
     if (res.data.screenshot) {
-      saveScreenshot(res.data.screenshot, getTimestampedFilename('05_search'));
+      saveScreenshot(res.data.screenshot, getTimestampedFilename('06_search'));
     }
     if (success && res.data.reservations?.length > 0) {
       console.log('   Found reservations:');
@@ -302,14 +335,14 @@ async function runTests() {
     failed++;
   }
 
-  // 6. 予約キャンセル（作成した予約をキャンセル）
-  console.log('\n--- 6. 予約キャンセル ---');
+  // 7. 予約キャンセル（作成した予約をキャンセル）
+  console.log('\n--- 7. 予約キャンセル ---');
   if (createdReservation) {
     try {
       // キャンセル前のスクリーンショットを取得（/slotsで現在の画面を取得）
       const beforeRes = await request('GET', `/slots?date_from=${TEST_DATE}&date_to=${TEST_DATE}`);
       if (beforeRes.data.screenshot) {
-        saveScreenshot(beforeRes.data.screenshot, getTimestampedFilename('06_cancel_before'));
+        saveScreenshot(beforeRes.data.screenshot, getTimestampedFilename('07_cancel_before'));
       }
 
       const body = {
@@ -329,7 +362,7 @@ async function runTests() {
       );
       // キャンセル後のスクリーンショット
       if (res.data.screenshot) {
-        saveScreenshot(res.data.screenshot, getTimestampedFilename('06_cancel_after'));
+        saveScreenshot(res.data.screenshot, getTimestampedFilename('07_cancel_after'));
       }
       success ? passed++ : failed++;
     } catch (error) {
@@ -340,14 +373,14 @@ async function runTests() {
     console.log('   ⚠️ 予約が作成されていないためスキップ');
   }
 
-  // 7. セッション再起動
-  console.log('\n--- 7. セッション再起動 ---');
+  // 8. セッション再起動
+  console.log('\n--- 8. セッション再起動 ---');
   try {
     const res = await request('POST', '/session/restart');
     const success = res.status === 200 && res.data.success;
     printResult('POST /session/restart', success, res.data.message || res.data.error);
     if (res.data.screenshot) {
-      saveScreenshot(res.data.screenshot, getTimestampedFilename('07_restart'));
+      saveScreenshot(res.data.screenshot, getTimestampedFilename('08_restart'));
     }
     success ? passed++ : failed++;
   } catch (error) {

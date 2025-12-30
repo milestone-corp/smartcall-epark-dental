@@ -4,6 +4,9 @@ services:
     container_name: smartcall-epark-dental
     env_file:
       - .env
+    environment:
+      # デフォルト値（.envで上書き可能）
+      - KEEP_ALIVE_INTERVAL_MS=${KEEP_ALIVE_INTERVAL_MS:-600000}
     ports:
       - "3001:3000"
     volumes:

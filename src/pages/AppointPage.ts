@@ -1104,6 +1104,26 @@ export class AppointPage extends BasePage {
     }
 
     if (memoLines.length > 0) {
+      // 編集ダイアログが開いていることを確認
+      await this.waitForSelector('.appointment_detail_info.open');
+
+      // 「編集」ボタンをクリックして編集モードに切り替える
+      // ※表示モード（dialog_view）では#txtAppointMemoが非表示のため
+      const editButton = await this.page.$('.guest_foot_edit');
+      if (editButton) {
+        await editButton.click();
+        await this.page.waitForTimeout(500);
+      }
+
+      // 患者メモタブをクリックしてアクティブにする（右側パネルを表示）
+      const patientTab = await this.page.$('.guest_body_head_tab_patient');
+      if (patientTab) {
+        await patientTab.click();
+        await this.page.waitForTimeout(300);
+      }
+
+      // 患者メモフィールドが表示されるまで待機
+      await this.waitForSelector('#txtAppointMemo', { state: 'visible' });
       // 既存のメモをクリアして新しい内容を入力
       await this.fill('#txtAppointMemo', memoLines.join('\n'));
     }
@@ -1119,15 +1139,39 @@ export class AppointPage extends BasePage {
     errorCode?: string;
     errorMessage?: string;
   }> {
-    // APIレスポンスを待機しながら更新ボタンをクリック
+    // 保存ボタンをクリック（編集モードの保存ボタン）
+    await this.click('.guest_foot_save');
+
+    // 確認ダイアログの「OK」ボタンを待機してクリック
+    // ※保存ボタンクリック後に「アポイント情報を更新します。よろしいですか？」ダイアログが表示される
+    // 確認ダイアログは様々なセレクターで表示される可能性があるため、複数パターンを試行
+    let okButton = await this.page.waitForSelector('button:has-text("OK")', {
+      state: 'visible',
+      timeout: 5000,
+    }).catch(() => null);
+
+    if (!okButton) {
+      // 別のセレクターを試行（confirm系ダイアログ）
+      okButton = await this.page.$('.confirm_dialog button.ok, .popup_box button:has-text("OK")');
+    }
+
+    if (!okButton) {
+      return {
+        success: false,
+        errorCode: 'CONFIRM_DIALOG_NOT_FOUND',
+        errorMessage: '確認ダイアログのOKボタンが見つかりません',
+      };
+    }
+
+    // APIレスポンスを待機しながらOKボタンをクリック
     const responsePromise = this.page.waitForResponse(
       (response) =>
         response.url().includes('/timeAppoint4M/scheduleregister/editappoint') &&
-        response.request().method() === 'POST'
+        response.request().method() === 'POST',
+      { timeout: 60000 }
     );
 
-    // 更新ボタンをクリック（詳細フォームの登録ボタン）
-    await this.click('.guest_foot_entry');
+    await okButton.click();
 
     // APIレスポンスを取得して結果を確認
     const response = await responsePromise;
@@ -1140,6 +1184,13 @@ export class AppointPage extends BasePage {
     if (!json.result) {
       const errorMessage = json.err_messages?.join(', ') || json.alert_message || '予約更新に失敗しました';
 
+      // エラー時はダイアログを閉じる
+      const closeButton = await this.page.$('.appointment_detail_info .popup_close');
+      if (closeButton) {
+        await closeButton.click();
+        await this.page.waitForTimeout(500);
+      }
+
       return {
         success: false,
         errorCode: 'SYSTEM_ERROR',
@@ -1147,8 +1198,25 @@ export class AppointPage extends BasePage {
       };
     }
 
-    // 詳細フォームが閉じるまで待機
-    await this.waitForSelector('.appointment_detail_info.open', { state: 'hidden' });
+    // 成功時：APIレスポンス後にダイアログが自動で閉じるのを待機
+    // 閉じない場合は明示的に閉じる
+    try {
+      await this.page.waitForSelector('.appointment_detail_info.open', {
+        state: 'hidden',
+        timeout: 5000,
+      });
+    } catch {
+      // タイムアウトした場合は明示的に閉じる
+      // 成功後は画面がリロードされる場合もあるため、要素がなくなっている可能性もチェック
+      const dialog = await this.page.$('.appointment_detail_info.open');
+      if (dialog) {
+        const closeButton = await this.page.$('.appointment_detail_info .popup_close');
+        if (closeButton) {
+          await closeButton.click();
+          await this.page.waitForTimeout(500);
+        }
+      }
+    }
 
     return { success: true };
   }
