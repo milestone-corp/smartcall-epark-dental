@@ -911,11 +911,14 @@ export class AppointPage extends BasePage {
 
     const start = slotStartAt.replace(':', '');
 
-    // 顧客名からラベルに含まれるテキストを作成（姓名の間のスペースを除去して部分一致）
-    const customerName = (reservation.customer?.name || '').replace(/\s+/g, '');
-
     // 電話番号からハイフンを除去（例: 090-1234-5678 → 09012345678）
+    // 電話番号は必須（予約の一意識別に使用）
     const customerPhone = (reservation.customer?.phone || '').replace(/[-\s]/g, '');
+
+    if (!customerPhone) {
+      console.log('[AppointPage] Customer phone is required for reservation search');
+      return null;
+    }
 
     // 該当日時の予約要素を取得
     const reservations = await this.page.$$(
@@ -930,11 +933,10 @@ export class AppointPage extends BasePage {
       // スペースとスラッシュを除去して比較用テキストを作成
       const normalizedLabel = labelText.replace(/[\s/]/g, '');
 
-      // 顧客名と電話番号の両方が含まれているか確認
-      const hasCustomerName = normalizedLabel.includes(customerName);
+      // 電話番号のみで検索（顧客名は音声認識の精度問題で不要に）
       const hasCustomerPhone = normalizedLabel.includes(customerPhone);
 
-      if (hasCustomerName && hasCustomerPhone) {
+      if (hasCustomerPhone) {
         // data属性を取得
         const appointId = await element.getAttribute('data-id') || '';
         const staffId = await element.getAttribute('data-staff') || '';

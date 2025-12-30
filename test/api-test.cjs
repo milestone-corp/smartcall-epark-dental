@@ -282,7 +282,6 @@ async function runTests() {
       const body = {
         date: createdReservation.date,
         time: createdReservation.time,
-        customer_name: TEST_CUSTOMER_NAME,
         customer_phone: TEST_CUSTOMER_PHONE,
         menu_name: newMenuName,
       };
@@ -348,7 +347,6 @@ async function runTests() {
       const body = {
         date: createdReservation.date,
         time: createdReservation.time,
-        customer_name: TEST_CUSTOMER_NAME,
         customer_phone: TEST_CUSTOMER_PHONE,
       };
       const res = await request('DELETE', '/reservations', body);

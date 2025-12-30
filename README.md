@@ -161,11 +161,17 @@ npm run start:persistent
 {
   "date": "2025-12-28",
   "time": "09:00",
-  "customer_name": "山田太郎",
   "customer_phone": "09012345678",
   "menu_name": "虫歯治療"
 }
 ```
+
+| パラメータ | 必須 | 説明 |
+|------------|------|------|
+| `date` | Yes | 予約日（YYYY-MM-DD） |
+| `time` | Yes | 予約時刻（HH:MM） |
+| `customer_phone` | Yes | 顧客電話番号（予約の特定に使用） |
+| `menu_name` | No | 更新後のメニュー名 |
 
 **レスポンス:**
 ```json
@@ -186,10 +192,15 @@ npm run start:persistent
 {
   "date": "2025-12-28",
   "time": "09:00",
-  "customer_name": "山田太郎",
   "customer_phone": "09012345678"
 }
 ```
+
+| パラメータ | 必須 | 説明 |
+|------------|------|------|
+| `date` | Yes | 予約日（YYYY-MM-DD） |
+| `time` | Yes | 予約時刻（HH:MM） |
+| `customer_phone` | Yes | 顧客電話番号（予約の特定に使用） |
 
 **レスポンス:**
 ```json

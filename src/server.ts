@@ -568,10 +568,11 @@ app.put('/reservations', async (req: Request, res: Response) => {
   const { date, time, customer_name, customer_phone, menu_name } = req.body;
   const isTestMode = req.headers['x-rpa-test-mode'] === 'true';
 
-  if (!date || !time || !customer_name || !customer_phone) {
+  // customer_nameはオプション（音声認識の精度問題で不要に）
+  if (!date || !time || !customer_phone) {
     res.status(400).json({
       success: false,
-      error: 'Missing required parameters: date, time, customer_name, customer_phone',
+      error: 'Missing required parameters: date, time, customer_phone',
       code: 'INVALID_REQUEST',
     });
     return;
@@ -668,10 +669,11 @@ app.delete('/reservations', async (req: Request, res: Response) => {
   const { date, time, customer_name, customer_phone } = req.body;
   const isTestMode = req.headers['x-rpa-test-mode'] === 'true';
 
-  if (!date || !time || !customer_name || !customer_phone) {
+  // customer_nameはオプション（音声認識の精度問題で不要に）
+  if (!date || !time || !customer_phone) {
     res.status(400).json({
       success: false,
-      error: 'Missing required parameters: date, time, customer_name, customer_phone',
+      error: 'Missing required parameters: date, time, customer_phone',
       code: 'INVALID_REQUEST',
     });
     return;
